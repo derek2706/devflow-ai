@@ -8,7 +8,7 @@ import authRepository from "./auth.repository";
 import { RegisterRequest } from "./auth.validation";
 import { ApiError } from "@/shared/errors/ApiError";
 import { HTTP_STATUS } from "@/shared/constants/http-status";
-import { AUTH_CONSTANTS } from "./auth.constants";
+import { AUTH_CONSTANTS, AUTH_MESSAGES } from "./auth.constants";
 
 export interface RegisterResponse {
   user: {
@@ -34,7 +34,10 @@ class AuthService {
     );
 
     if (existing) {
-      throw new ApiError(HTTP_STATUS.CONFLICT, "User already exists");
+      throw new ApiError(
+        HTTP_STATUS.CONFLICT,
+        AUTH_MESSAGES.USER_ALREADY_EXISTS,
+      );
     }
 
     const passwordHash = await bcrypt.hash(

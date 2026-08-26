@@ -14,7 +14,7 @@ class AuthController {
       .json(
         new ApiResponse(
           HTTP_STATUS.CREATED,
-          AUTH_MESSAGES.USER_ALREADY_EXISTS,
+          AUTH_MESSAGES.USER_REGISTERED,
           result,
         ),
       );
