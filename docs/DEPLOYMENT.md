@@ -4,6 +4,14 @@ Deploy the frontend and backend as **one Vercel project**. Next.js serves the pa
 
 PostgreSQL runs on a database provider. Use **Vercel Hobby** and **Supabase Free** for the requested $0 demo. Hobby is for personal, non-commercial use. Review the current [Hobby limits](https://vercel.com/docs/plans/hobby) and [Supabase plans](https://supabase.com/pricing) when signing up. Do not enable paid upgrades for this demo.
 
+## Current deployment
+
+Production is [devflow-ai-web-ten.vercel.app](https://devflow-ai-web-ten.vercel.app), served by `devflow-ai-web` from `codex/deploy-vercel`, with Supabase PostgreSQL. On September 24, 2026, the configuration check and migrations passed; the live health/readiness endpoints and frontend assets returned 200. Synthetic email/mobile logins returned 401, malformed requests returned 400, and untrusted origins returned 403. These checks created no accounts or application records.
+
+The startup 500 was fixed by correcting Production's port and token lifetimes and replacing invalid JWT secrets. Environment changes require a fresh deployment. Keep the generated valid secrets for subsequent releases.
+
+DevFlow uses its existing email/mobile authentication and Prisma database connection. `NEXT_PUBLIC_SUPABASE_URL`, a Supabase publishable key, and Supabase SSR middleware do not configure this login system. DevFlow JWT secrets are generated independently, while Prisma uses the private `DATABASE_URL`. Local accounts are not copied to the hosted database; use Sign up on the production site for an account that previously existed only locally.
+
 ## Create accounts and a database
 
 1. Create or sign into [Vercel](https://vercel.com/signup), selecting Hobby. Complete terms and GitHub authorization yourself, granting access to `derek2706/devflow-ai`.

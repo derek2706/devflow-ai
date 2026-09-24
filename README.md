@@ -256,14 +256,29 @@ Verification used disposable test accounts and workspaces. Existing account data
 
 ## Production and current boundaries
 
-The [Vercel deployment guide](docs/DEPLOYMENT.md) explains how to host both apps in one Vercel project, with a separate Supabase PostgreSQL database. Use Vercel Hobby and Supabase Free for a personal, non-commercial demo. Account setup, database creation, and GitHub authorization are required before it can go live.
+The app is deployed at [DevFlow AI](https://devflow-ai-web-ten.vercel.app). One Vercel project serves the frontend and backend; Supabase hosts PostgreSQL. The [Vercel deployment guide](docs/DEPLOYMENT.md) explains the configuration and how to deploy updates. The demo uses Vercel Hobby and Supabase Free for personal, non-commercial use.
 
 The Next.js API route delegates to the existing Express backend. The browser uses `/api` on the same HTTPS origin, so cookies work without a separate API domain. `pnpm build:vercel` generates Prisma, compiles the backend, validates API configuration before applying migrations in Vercel Production builds, and builds Next.js. Invalid configuration stops the production build before migrations. `apps/web/vercel.json` sets the deployment commands; choose `apps/web` as the Vercel Root Directory and include files outside that directory.
 
 The existing Vercel project tracks `codex/deploy-vercel`. Create each production deployment from that branch's latest commit and confirm the source commit in Vercel. Redeploying an older `main` deployment rebuilds that older commit and misses the deployment fixes.
 
 `DATABASE_URL` uses a pooled database connection. For production migrations, an explicit `DIRECT_URL` takes priority. When it is missing or empty, the build can derive Supabase's session connection only from a shared `*.pooler.supabase.com:6543` transaction URL, changing the port to `5432` while preserving credentials, database, and TLS settings. Other providers require `DIRECT_URL`; malformed or whitespace-only overrides fail instead of falling back. Production and preview databases/secrets should be separate. Recovery email and paid AI providers remain optional configuration. See the guide for variables, validation, limits, updates, and rollback.
-The repository is prepared for deployment; a live service still requires the account and database setup above. Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; Vercel can create multiple function instances, so use a shared limiter before broader public use. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
+Local accounts and development data were not copied to Supabase. If an account exists only on your machine, use Sign up on the live site. DevFlow keeps its own email/mobile login and session system, with Prisma connecting to Supabase PostgreSQL. The Supabase JavaScript/SSR quickstart is not needed for this configuration.
+
+Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; Vercel can create multiple function instances, so use a shared limiter before broader public use. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
+
+### Production verification (September 24, 2026)
+
+The deployment startup failure came from invalid Vercel values for `PORT`, both token lifetimes, and both JWT secrets. Production now uses port `5001`, access lifetime `15m`, refresh lifetime `7d`, and independently generated JWT secrets stored only in Vercel. The build validates these settings before running migrations.
+
+Live checks on the production domain passed:
+
+- Login page and compiled frontend assets: HTTP 200.
+- `/api/health` and `/api/health/ready`: HTTP 200, including a successful Supabase database query.
+- Synthetic email/mobile login attempts: HTTP 401 with the expected invalid-credentials response and no session cookies.
+- Invalid registration and malformed JSON: HTTP 400; protected routes without a session: HTTP 401; an untrusted browser origin: HTTP 403.
+
+These live checks created no accounts or application records. The authenticated workspace/task flows were verified locally as described above. Password recovery email and external AI provider delivery remain unconfigured for this demo.
 
 ### Troubleshooting
 
