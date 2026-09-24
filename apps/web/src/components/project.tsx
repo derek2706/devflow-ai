@@ -8,11 +8,11 @@ import { errorText, itemOf, listOf, patch, post, remove } from "../lib/api";
 import { Column, Member, Project, Task, User, Workspace } from "../lib/types";
 import {
   Avatar,
+  ContentSkeleton,
   dateLabel,
   Empty,
   ErrorBanner,
   Icon,
-  Loading,
   Modal,
   PriorityBadge,
   useResource,
@@ -31,7 +31,7 @@ export function ProjectView({
   id: string;
   user: User;
   workspaces: Workspace[];
-  onWorkspace: (id: string) => void;
+  onWorkspace: (id: string | null) => void;
   onChange: () => void;
 }) {
   const router = useRouter();
@@ -60,7 +60,8 @@ export function ProjectView({
     project?.createdById === user.id;
   useEffect(() => {
     if (project?.workspaceId) onWorkspace(project.workspaceId);
-  }, [project?.workspaceId, onWorkspace]);
+    else if (resource.error) onWorkspace(null);
+  }, [project?.workspaceId, resource.error, onWorkspace]);
   useEffect(() => {
     if (!project) return;
     const taskId = new URLSearchParams(window.location.search).get("task");
@@ -111,7 +112,7 @@ export function ProjectView({
     return (
       <>
         <ErrorBanner error={resource.error} />
-        {resource.loading && <Loading label="Opening your project…" />}
+        {resource.loading && <ContentSkeleton label="Opening your project…" />}
       </>
     );
   const taskCount = project.columns.reduce(

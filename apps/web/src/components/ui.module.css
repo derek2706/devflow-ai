@@ -16,6 +16,9 @@
 .native-svg {
   composes: native-svg from "./shared.module.css";
 }
+.sr-only {
+  composes: sr-only from "./shared.module.css";
+}
 /* Shared primitives are composed explicitly; feature rules stay local. */
 .notice {
   font-size: 13px;
@@ -55,6 +58,56 @@
   border-top-color: var(--purple);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+.content-skeleton {
+  padding: 4px 0 24px;
+}
+.skeleton-heading {
+  margin-bottom: 30px;
+}
+.skeleton-heading > span,
+.skeleton-card > span {
+  display: block;
+  height: 12px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  animation: pulse 1.5s ease-in-out infinite alternate;
+}
+.skeleton-heading > span:first-child {
+  height: 29px;
+  width: min(290px, 65%);
+  margin-bottom: 13px;
+}
+.skeleton-heading > span:last-child {
+  width: min(390px, 85%);
+}
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.skeleton-card {
+  min-height: 170px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 25px;
+}
+.skeleton-card > span {
+  margin-bottom: 16px;
+}
+.skeleton-card > span:first-child {
+  width: 55%;
+  height: 18px;
+  margin-bottom: 26px;
+}
+.skeleton-card > span:last-child {
+  width: 70%;
+}
+@keyframes pulse {
+  to {
+    opacity: 0.45;
+  }
 }
 @keyframes spin {
   to {
@@ -233,6 +286,13 @@
   }
 }
 @media (max-width: 760px) {
+  .skeleton-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .skeleton-card {
+    min-height: 120px;
+  }
   .modal-backdrop {
     padding: 14px;
   }

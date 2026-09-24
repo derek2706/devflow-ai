@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { DevFlow } from "../components/devflow";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,7 +13,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <DevFlow />
+        {children}
+      </body>
     </html>
   );
 }

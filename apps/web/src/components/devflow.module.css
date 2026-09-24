@@ -191,6 +191,12 @@
   color: #66667f;
   padding: 8px 13px;
 }
+.sidebar-loading {
+  min-height: 65px;
+  justify-content: flex-start;
+  padding: 8px 13px;
+  font-size: 11px;
+}
 .create-workspace {
   margin-top: 17px;
   color: #7e7e96;

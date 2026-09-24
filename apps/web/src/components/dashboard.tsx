@@ -8,11 +8,11 @@ import { useState } from "react";
 import { DashboardData, Project, User, Workspace } from "../lib/types";
 import {
   Avatar,
+  ContentSkeleton,
   dateLabel,
   Empty,
   ErrorBanner,
   Icon,
-  Loading,
   PriorityBadge,
   timeAgo,
   useResource,
@@ -23,9 +23,11 @@ import { AiPanel } from "./ai";
 export function ProjectCard({
   project,
   className,
+  onNavigate,
 }: {
   project: Project;
   className?: string;
+  onNavigate?: (project: Pick<Project, "id" | "workspaceId">) => void;
 }) {
   const tasks = project.columns?.flatMap((column) => column.tasks || []) || [];
   const total = project._count?.tasks ?? tasks.length;
@@ -36,6 +38,7 @@ export function ProjectCard({
   return (
     <Link
       href={`/projects/${project.id}`}
+      onNavigate={() => onNavigate?.(project)}
       className={cx(styles["native-a"], styles["project-card"], className)}
     >
       <div className={styles["project-card-top"]}>
@@ -83,12 +86,14 @@ export function Dashboard({
   workspaces,
   onCreateWorkspace,
   onChange,
+  onProjectNavigate,
 }: {
   user: User;
   workspace?: Workspace;
   workspaces: Workspace[];
   onCreateWorkspace: () => void;
   onChange: () => void;
+  onProjectNavigate: (project: Pick<Project, "id" | "workspaceId">) => void;
 }) {
   const router = useRouter();
   const resource = useResource<DashboardData>(
@@ -128,7 +133,7 @@ export function Dashboard({
       </div>
       <ErrorBanner error={resource.error} />
       {resource.loading && !data ? (
-        <Loading />
+        <ContentSkeleton label="Loading your overview…" heading={false} />
       ) : (
         data && (
           <>
@@ -234,7 +239,11 @@ export function Dashboard({
               {data.projects.length ? (
                 <div className={styles["projects-grid"]}>
                   {data.projects.slice(0, 3).map((project) => (
-                    <ProjectCard key={project.id} project={project} />
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      onNavigate={onProjectNavigate}
+                    />
                   ))}
                   <button
                     className={cx(
@@ -296,6 +305,12 @@ export function Dashboard({
                         className={cx(styles["native-a"], styles["task-row"])}
                         key={task.id}
                         href={`/projects/${task.projectId}?task=${task.id}`}
+                        onNavigate={() => {
+                          const project = data.projects.find(
+                            (project) => project.id === task.projectId,
+                          );
+                          if (project) onProjectNavigate(project);
+                        }}
                       >
                         <span className={styles["task-checkbox"]}>
                           <Icon name="circle" size={16} />
@@ -387,6 +402,7 @@ export function Dashboard({
             setCreateProject(false);
             onChange();
             resource.refresh();
+            onProjectNavigate(project);
             router.push(`/projects/${project.id}`);
           }}
         />

@@ -3,12 +3,24 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { createServer } = require("node:http");
 const { createRequire } = require("node:module");
+const { parse: parseQuery } = require("node:querystring");
 const test = require("node:test");
 const { apiResolver } = require("next/dist/server/api-utils/node/api-resolver");
 const serverRequire = createRequire(
   require.resolve("../../server/package.json"),
 );
 const express = serverRequire("express");
+const { require: requireTypeScript } = serverRequire("tsx/cjs/api");
+// Load the real validation layer without importing the app, Prisma, or compiled
+// artifacts, so these regressions also run from a clean checkout.
+const { dashboardQuerySchema } = requireTypeScript(
+  "../../server/src/modules/dashboard/dashboard.validation.ts",
+  __filename,
+);
+const { validateQuery } = requireTypeScript(
+  "../../server/src/shared/validation.ts",
+  __filename,
+);
 const {
   createBackendLoader,
   createExpressBridge,
@@ -83,7 +95,7 @@ function sampleApp() {
 async function serve(context, bridge) {
   const server = createServer((request, response) => {
     const url = new URL(request.url, "http://localhost");
-    const query = Object.fromEntries(url.searchParams);
+    const query = parseQuery(url.search.slice(1));
     if (url.pathname !== "/api") query.path = url.pathname.slice(5).split("/");
     // Exercise the actual Next API resolver's decorated req/res, cookie parser,
     // response helpers and disabled body parser, rather than a mock Next layer.
@@ -155,6 +167,113 @@ test("Next-to-Express bridge preserves body, URL, status, response headers, and 
     query: "board",
     data: body,
   });
+});
+
+function dashboardQueryApp() {
+  const app = express();
+  app.get(
+    "/api/dashboard",
+    validateQuery(dashboardQuerySchema),
+    (request, response) =>
+      response.json({
+        success: true,
+        query: response.locals.validatedQuery,
+        url: request.url,
+      }),
+  );
+  return app;
+}
+
+test("dashboard validation accepts empty and workspace queries without Next catch-all metadata", async (context) => {
+  const app = dashboardQueryApp();
+  const origin = await serve(
+    context,
+    createExpressBridge(() => app),
+  );
+  const workspaceId = "420ce36a-447f-4945-a6ea-f7ea518d108a";
+  for (const [search, query] of [
+    ["", {}],
+    [`?workspaceId=${workspaceId}`, { workspaceId }],
+  ]) {
+    const response = await fetch(`${origin}/api/dashboard${search}`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      success: true,
+      query,
+      url: `/api/dashboard${search}`,
+    });
+  }
+});
+
+// This tests the URL received by the adapter. The full Next server can consume
+// its reserved catch-all parameter name before invoking the API resolver.
+test("dashboard still rejects caller-supplied path parameters after removing Next route metadata", async (context) => {
+  const app = dashboardQueryApp();
+  const origin = await serve(
+    context,
+    createExpressBridge(() => app),
+  );
+  for (const search of ["?path=caller-value", "?path=first&path=second"]) {
+    const response = await fetch(`${origin}/api/dashboard${search}`);
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.success, false);
+    assert.equal(body.message, "Invalid query parameters");
+    assert.deepEqual(
+      body.errors.map(({ code, keys }) => ({ code, keys })),
+      [{ code: "unrecognized_keys", keys: ["path"] }],
+    );
+  }
+});
+
+test("Express's configured parser retains repeated, encoded, and nested query semantics", async (context) => {
+  const search =
+    "?tags=frontend&tags=api&search=C%2B%2B+tools&filter%5Bstatus%5D=open&filters%5Blabels%5D%5B%5D=one&filters%5Blabels%5D%5B%5D=two&empty=";
+  for (const [parser, expected] of [
+    [
+      "simple",
+      {
+        tags: ["frontend", "api"],
+        search: "C++ tools",
+        "filter[status]": "open",
+        "filters[labels][]": ["one", "two"],
+        empty: "",
+      },
+    ],
+    [
+      "extended",
+      {
+        tags: ["frontend", "api"],
+        search: "C++ tools",
+        filter: { status: "open" },
+        filters: { labels: ["one", "two"] },
+        empty: "",
+      },
+    ],
+  ]) {
+    const app = express();
+    app.set("query parser", parser);
+    app.get("/api/query", (request, response) =>
+      response.json({
+        query: request.query,
+        url: request.url,
+      }),
+    );
+    const origin = await serve(
+      context,
+      createExpressBridge(() => app),
+    );
+    const response = await fetch(`${origin}/api/query${search}`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      await response.json(),
+      {
+        query: expected,
+        url: `/api/query${search}`,
+      },
+      `${parser} query parser`,
+    );
+  }
 });
 
 test("logout cookie expiration reaches the browser without merging Set-Cookie", async (context) => {

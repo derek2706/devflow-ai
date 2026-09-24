@@ -1,4 +1,4 @@
-import { DevFlow } from "../components/devflow";
 export default function Home() {
-  return <DevFlow />;
+  // The root layout owns the persistent client shell and session.
+  return null;
 }

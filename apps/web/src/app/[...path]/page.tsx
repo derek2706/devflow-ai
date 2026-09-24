@@ -1,4 +1,4 @@
-import { DevFlow } from "../../components/devflow";
 export default function Page() {
-  return <DevFlow />;
+  // Route changes update the shell's pathname without remounting it.
+  return null;
 }
