@@ -9,7 +9,10 @@ const serverRequire = createRequire(
   require.resolve("../../server/package.json"),
 );
 const express = serverRequire("express");
-const { createExpressBridge } = require("../api-bridge.cjs");
+const {
+  createBackendLoader,
+  createExpressBridge,
+} = require("../api-bridge.cjs");
 const {
   developmentApiRewrites,
   getApiInternalOrigin,
@@ -247,6 +250,173 @@ test("configuration/loading failures return a generic error without exposing sec
     message: "Internal server error",
   });
   assert.equal(reported, 1);
+});
+
+test("initialization diagnostics identify each backend loading stage without logging values", async (context) => {
+  const cases = [
+    {
+      dependencies: {
+        loadEnvironment: () => {
+          throw Object.assign(
+            new Error(
+              "Cannot find module 'dotenv'\nRequire stack: /private/secret",
+            ),
+            { code: "MODULE_NOT_FOUND" },
+          );
+        },
+      },
+      expected: {
+        stage: "environment-module",
+        errorName: "Error",
+        errorCode: "MODULE_NOT_FOUND",
+        module: "dotenv",
+      },
+    },
+    {
+      dependencies: {
+        loadEnvironment: () => ({
+          getEnv: () => {
+            throw new Error(
+              "Invalid environment configuration: DATABASE_URL, JWT_ACCESS_SECRET, CORS_ORIGINS.0, DATABASE_URL postgresql://private:secret@db/private UNKNOWN_SECRET",
+            );
+          },
+        }),
+      },
+      expected: {
+        stage: "environment-validation",
+        errorName: "Error",
+        configurationKeys: [
+          "DATABASE_URL",
+          "JWT_ACCESS_SECRET",
+          "CORS_ORIGINS",
+        ],
+      },
+    },
+    {
+      dependencies: {
+        loadEnvironment: () => ({ getEnv: () => ({}) }),
+        loadApplication: () => {
+          throw Object.assign(new Error("/private/secret/native.node failed"), {
+            code: "ERR_DLOPEN_FAILED",
+          });
+        },
+      },
+      expected: {
+        stage: "application-module",
+        errorName: "Error",
+        errorCode: "ERR_DLOPEN_FAILED",
+      },
+    },
+  ];
+  for (const { dependencies, expected } of cases) {
+    const diagnostics = [];
+    const origin = await serve(
+      context,
+      createExpressBridge(createBackendLoader(dependencies), (diagnostic) =>
+        diagnostics.push(diagnostic),
+      ),
+    );
+    const response = await fetch(`${origin}/api/health`);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      success: false,
+      message: "Internal server error",
+    });
+    assert.deepEqual(diagnostics, [expected]);
+  }
+});
+
+test("request diagnostics retain safe Prisma codes and preserve separate cookies on a generic 500", async (context) => {
+  const diagnostics = [];
+  const cookies = [
+    "access_token=; Path=/; HttpOnly",
+    "refresh_token=; Path=/api/auth; HttpOnly",
+  ];
+  const origin = await serve(
+    context,
+    createExpressBridge(
+      createBackendLoader({
+        loadEnvironment: () => ({ getEnv: () => ({}) }),
+        loadApplication: () => ({
+          default: async (_request, response) => {
+            response.setHeader("Set-Cookie", cookies);
+            throw Object.assign(
+              new Error("postgresql://user:secret@db/private"),
+              {
+                name: "PrismaClientInitializationError",
+                errorCode: "P1001",
+              },
+            );
+          },
+        }),
+      }),
+      (diagnostic) => diagnostics.push(diagnostic),
+    ),
+  );
+  const response = await fetch(`${origin}/api/auth/login`, { method: "POST" });
+  assert.equal(response.status, 500);
+  assert.deepEqual(response.headers.getSetCookie(), cookies);
+  assert.deepEqual(await response.json(), {
+    success: false,
+    message: "Internal server error",
+  });
+  assert.deepEqual(diagnostics, [
+    {
+      stage: "request-handling",
+      errorName: "PrismaClientInitializationError",
+      errorCode: "P1001",
+    },
+  ]);
+});
+
+test("default diagnostics exclude arbitrary names, codes, messages, stacks, module paths, and request data", async (context) => {
+  const logs = [];
+  context.mock.method(console, "error", (...args) => logs.push(args));
+  for (const [error, expected] of [
+    [
+      Object.assign(new Error("postgresql://user:secret@db/private"), {
+        name: "private-error-name",
+        code: "private-error-code",
+        stack: "private-stack",
+      }),
+      { stage: "request-handling", errorName: "UnknownError" },
+    ],
+    [
+      Object.assign(
+        new Error("Cannot find module '/private/secret/module.js'"),
+        {
+          code: "MODULE_NOT_FOUND",
+        },
+      ),
+      {
+        stage: "request-handling",
+        errorName: "Error",
+        errorCode: "MODULE_NOT_FOUND",
+      },
+    ],
+  ]) {
+    const origin = await serve(
+      context,
+      createExpressBridge(() => () => {
+        throw error;
+      }),
+    );
+    const response = await fetch(`${origin}/api/auth/login?secret=query`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer private-auth-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ password: "private-body-password" }),
+    });
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      success: false,
+      message: "Internal server error",
+    });
+    assert.deepEqual(logs.at(-1), ["DevFlow AI API failure.", expected]);
+  }
+  assert.equal(logs.length, 2);
 });
 
 test("bridge awaits response completion rather than Express's immediate return", async () => {
