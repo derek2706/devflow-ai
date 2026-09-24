@@ -87,7 +87,7 @@ Only `NEXT_PUBLIC_API_URL` belongs in the browser. Never prefix database URLs, J
 
 ## Build and verification
 
-The local regression suite currently passes 106 tests: 79 backend, 12 Next/Express bridge, 9 migration guards, and 6 production configuration guards. The bridge tests cover startup diagnostics, generic error responses, and preservation of separate session cookies. Local test results and a successful build do not establish the hosted API's health; complete the live checks below after each release.
+The local regression suite currently passes 109 tests: 79 backend, 15 Next/Express bridge, 9 migration guards, and 6 production configuration guards. The bridge tests cover startup diagnostics, generic error responses, and preservation of separate session cookies. Local test results and a successful build do not establish the hosted API's health; complete the live checks below after each release.
 
 The build generates Prisma, compiles Express, validates API configuration, applies committed migrations, then builds Next.js with its API function. **Configuration validation and migrations run only in a Vercel Production build.** `node scripts/vercel-validate.mjs` calls the compiled backend's environment validator after the Express build and before migrations; invalid configuration stops the build with a safe error before changing the database. Preview and local builds skip this production check.
 
@@ -113,6 +113,7 @@ Migrations are skipped for previews. Initialize that isolated database with `pnp
 
 - A Next Pages API route delegates native HTTP requests to the existing Express backend, preserving paths, status codes, raw request bodies, and multiple cookies.
 - Startup diagnostics identify the failing stage and log only approved error identifiers and configuration key names, while clients receive a generic 500 response.
+- Next's own query object is removed before Express runs, restoring Express's URL query parser and keeping catch-all route metadata out of dashboard validation. Query filters and pagination remain validated normally; `path` is reserved by Next's catch-all route and is not an application filter.
 - Next's body parser is disabled for this route, retaining Express's body parsing and request-size limits.
 - Prisma is reused within warm runtimes; use pooled database connections for serverless traffic.
 - An additive security migration protects DevFlow tables from Supabase's public Data API while preserving backend access.
@@ -147,6 +148,7 @@ If every API endpoint returns 500, inspect the function's runtime logs for `DevF
 
 Diagnostics include only an approved error name/code, recognized configuration key names, and an approved missing-module identifier when available. They never include configuration values, raw error messages/stacks, database URLs, authorization headers, or request bodies. For `environment-validation`, check blank `PORT`, `ACCESS_TOKEN_EXPIRY`, and `REFRESH_TOKEN_EXPIRY` first when those keys are listed. JWT secrets must each contain at least 32 characters. Preserve existing valid secrets; replacing a secret affects existing sessions. After correcting environment variables, create a production deployment using the latest deployment-branch commit and repeat the health checks.
 
+- **Dashboard rejects an unexpected `path` query key:** deploy the adapter fix that restores Express query parsing; keep the dashboard schema strict.
 - **Missing backend/Prisma module:** verify the root build command and inclusion of files outside `apps/web`.
 - **Migration failed:** check any explicit `DIRECT_URL`, or the supported Supabase `DATABASE_URL` fallback, TLS, database availability, and migration history. Build logs include recognized Prisma error codes such as `P1000` (credentials), `P1001` (connection), `P3005` (nonempty schema), or `P3018` (migration failure), without raw database errors or URLs.
 - **Readiness 503:** check database variables and provider availability.

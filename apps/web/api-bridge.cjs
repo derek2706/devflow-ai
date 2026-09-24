@@ -171,6 +171,11 @@ function createExpressBridge(
           stage = nextStage;
         });
         stage = "request-handling";
+        // Next's own query object includes route parameters such as catch-all
+        // `path`, shadowing Express 5's getter. Let Express parse the original
+        // URL so only real query parameters reach validation (including any
+        // caller-supplied `path`, which must still be validated normally).
+        delete request.query;
         Promise.resolve(app(request, response)).catch(failed);
       } catch (error) {
         failed(error);

@@ -241,13 +241,15 @@ The repository began with registration/login APIs, an auth schema, a Next.js sta
 
 Production startup was repaired by replacing unresolved TypeScript `@/` imports with relative imports. The API validates configuration and connects to PostgreSQL before listening. Pino handles logs without exposing tokens/SQL values; graceful shutdown closes HTTP and Prisma. HTTP middleware handles malformed JSON, body limits, unknown routes, browser origins, and rate limits.
 
+The Next-to-Express adapter removes Next's own query object before handing off the request. Express then parses the URL query normally, so catch-all routing metadata such as `path` cannot trigger the dashboard's strict query validation. Regression tests cover the real dashboard validator, preserved filters, repeated/encoded query values, and rejection of unknown application query parameters.
+
 ### Verification completed
 
 Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
 
 - Production builds for the API and frontend, frontend lint, and formatting checks passed. Next.js 16.3.6 and Prisma 6.19.3 are used; the production dependency audit reports no known vulnerabilities.
-- The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
-- `pnpm test`: 106 passed (79 backend, 12 Next/Express bridge, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, rejection of untrusted origins, and safe API startup diagnostics.
+- The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, dashboard queries with and without workspace filters, task/comment pagination, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
+- `pnpm test`: 109 passed (79 backend, 15 Next/Express bridge, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, rejection of untrusted origins, and safe API startup diagnostics.
 - `pnpm test:integration`: all 9 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, password recovery, and database row-level security against PostgreSQL.
 - Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
 - At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.
