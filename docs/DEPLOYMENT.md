@@ -39,7 +39,7 @@ The existing Vercel project is `devflow-ai-web`, connected to [the repository](h
 | Output directory                         | Next.js default            |
 | Production branch                        | `codex/deploy-vercel`      |
 
-If the initial import selects `main`, change **Settings → Environments → Production → Branch Tracking** to `codex/deploy-vercel`, then create a new production deployment from that branch. Do not promote a preview built without Production variables: the production build must run with them to apply migrations.
+If the initial import selects `main`, change **Settings → Environments → Production → Branch Tracking** to `codex/deploy-vercel`, then create a new production deployment from that branch's latest commit. Confirm the source branch and commit in the deployment details. Redeploying an older `main` deployment rebuilds that older commit and misses the deployment fixes. Do not promote a preview built without Production variables: the production build must run with them to apply migrations.
 
 The monorepo setting matters because Next imports `apps/server/dist` and uses dependencies from the root lockfile. Do not create a second project for `apps/server`.
 
@@ -57,6 +57,16 @@ Set these for **Production** before deploying:
 | `AI_MODE`             | `local`                                                                                                             |
 | `TRUST_VERCEL_PROXY`  | `true`                                                                                                              |
 
+These additional variables are optional, but must contain valid values when present:
+
+| Variable               | Recommended value | Validation                      |
+| ---------------------- | ----------------- | ------------------------------- |
+| `PORT`                 | `5001`            | Integer from 1 to 65535         |
+| `ACCESS_TOKEN_EXPIRY`  | `15m`             | Positive duration up to one day |
+| `REFRESH_TOKEN_EXPIRY` | `7d`              | Positive duration up to 90 days |
+
+Set those values or remove the variables entirely to use their defaults. **Do not leave them blank:** an empty value fails configuration validation and makes every API endpoint return 500. `PORT` is still validated even though Vercel owns the HTTP listener. Duration units are `s`, `m`, `h`, or `d`, for example `15m` or `7d`.
+
 Preserve the existing JWT secrets when updating this deployment. For a fresh installation, generate each JWT secret separately in your terminal:
 
 ```sh
@@ -69,7 +79,11 @@ Only `NEXT_PUBLIC_API_URL` belongs in the browser. Never prefix database URLs, J
 
 ## Build and verification
 
-The build generates Prisma, compiles Express, applies committed migrations **only in a Vercel Production build** using an explicit `DIRECT_URL` or the Supabase shared-pooler fallback above, then builds Next.js with its API function. Other database providers and unsupported connection modes require an explicit migration URL. Migrations use `prisma migrate deploy` and never reset the database. They run during build, not during API requests. Migration failure stops deployment. A later build failure can leave migrations applied, so schema changes must remain compatible with the previous app release.
+The local regression suite currently passes 106 tests: 79 backend, 12 Next/Express bridge, 9 migration guards, and 6 production configuration guards. The bridge tests cover startup diagnostics, generic error responses, and preservation of separate session cookies. Local test results and a successful build do not establish the hosted API's health; complete the live checks below after each release.
+
+The build generates Prisma, compiles Express, validates API configuration, applies committed migrations, then builds Next.js with its API function. **Configuration validation and migrations run only in a Vercel Production build.** `node scripts/vercel-validate.mjs` calls the compiled backend's environment validator after the Express build and before migrations; invalid configuration stops the build with a safe error before changing the database. Preview and local builds skip this production check.
+
+Migrations use an explicit `DIRECT_URL` or the Supabase shared-pooler fallback above. Other database providers and unsupported connection modes require an explicit migration URL. Migrations use `prisma migrate deploy` and never reset the database. They run during build, not during API requests. Migration failure stops deployment. A later build failure can leave migrations applied, so schema changes must remain compatible with the previous app release.
 
 Once Vercel reports Ready, open its assigned HTTPS URL and check:
 
@@ -90,12 +104,14 @@ Migrations are skipped for previews. Initialize that isolated database with `pnp
 ## What changed
 
 - A Next Pages API route delegates native HTTP requests to the existing Express backend, preserving paths, status codes, raw request bodies, and multiple cookies.
+- Startup diagnostics identify the failing stage and log only approved error identifiers and configuration key names, while clients receive a generic 500 response.
 - Next's body parser is disabled for this route, retaining Express's body parsing and request-size limits.
 - Prisma is reused within warm runtimes; use pooled database connections for serverless traffic.
 - An additive security migration protects DevFlow tables from Supabase's public Data API while preserving backend access.
 - `/api/health/ready` checks the database with a deadline and safe error response.
 - Trusted Vercel client-IP handling requires an explicit opt-in and validated header.
 - `scripts/vercel-migrate.mjs` applies production migrations using the migration URL and skips previews.
+- `scripts/vercel-validate.mjs` validates production API configuration before migrations, reporting a fixed safe error when configuration or module loading fails.
 - `apps/web/vercel.json` defines build/install commands, pins pnpm through Corepack, and selects the region.
 - Next.js and Prisma were updated to patched versions. Targeted dependency overrides in `pnpm-workspace.yaml` resolve the remaining Express query parser and Prisma configuration advisories.
 - Local development keeps ports 3000/5001. Next forwards local `/api` requests to the separate API; hosted builds use the integrated API route.
@@ -110,7 +126,18 @@ Migrations are skipped for previews. Initialize that isolated database with `pnp
 
 ## Updates and troubleshooting
 
-Vercel's Git integration normally deploys updates to the production branch automatically. Use isolated previews before releasing changes. A Vercel rollback changes application code, not database migrations; only roll back to compatible code. Never run `prisma migrate reset` against the hosted database.
+Vercel's Git integration normally deploys updates to the production branch automatically. For this project, verify that the release uses the latest commit on `codex/deploy-vercel`. When manually creating a production deployment, select that branch; the Redeploy action on an old `main` deployment retains its old source commit. Use isolated previews before releasing changes. A Vercel rollback changes application code, not database migrations; only roll back to compatible code. Never run `prisma migrate reset` against the hosted database.
+
+If every API endpoint returns 500, inspect the function's runtime logs for `DevFlow AI API failure.`. Its `stage` identifies where startup or handling failed:
+
+| Stage                    | What to check                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `environment-module`     | Compiled `apps/server/dist/config/env.js` and its dependencies are included in the deployment               |
+| `environment-validation` | Variables named in `configurationKeys` have valid values in the deployment's environment                    |
+| `application-module`     | Compiled Express app, dependencies, generated Prisma client, and native binaries are included               |
+| `request-handling`       | An unhandled failure occurred after the app loaded; use the approved error name/code to guide investigation |
+
+Diagnostics include only an approved error name/code, recognized configuration key names, and an approved missing-module identifier when available. They never include configuration values, raw error messages/stacks, database URLs, authorization headers, or request bodies. For `environment-validation`, check blank `PORT`, `ACCESS_TOKEN_EXPIRY`, and `REFRESH_TOKEN_EXPIRY` first when those keys are listed. JWT secrets must each contain at least 32 characters. Preserve existing valid secrets; replacing a secret affects existing sessions. After correcting environment variables, create a production deployment using the latest deployment-branch commit and repeat the health checks.
 
 - **Missing backend/Prisma module:** verify the root build command and inclusion of files outside `apps/web`.
 - **Migration failed:** check any explicit `DIRECT_URL`, or the supported Supabase `DATABASE_URL` fallback, TLS, database availability, and migration history. Build logs include recognized Prisma error codes such as `P1000` (credentials), `P1001` (connection), `P3005` (nonempty schema), or `P3018` (migration failure), without raw database errors or URLs.
