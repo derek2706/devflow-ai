@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DevFlow AI web app
 
-## Getting Started
+See the [project README](../../README.md) for full setup, features, database, environment variables, permissions, and development email instructions.
 
-First, run the development server:
+From the repository root, use Node 22 and run:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```sh
+pnpm install
+pnpm dev:web
+pnpm --filter web lint
+pnpm --filter web build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The frontend runs at http://localhost:3000 and connects to http://localhost:5001/api by default. Copy `.env.example` to `.env.local` to change the public API URL.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/app`: Next.js entry pages, metadata, document reset, and theme variables.
+- `src/components/devflow.tsx`: authenticated shell, navigation, workspace switcher, and invitation acceptance.
+- `src/components/auth.tsx`: sign up, login, forgotten password, and reset password.
+- `src/components/dashboard.tsx`: live project stats, recent tasks/activity, and project cards.
+- `src/components/workspace.tsx`: workspace projects, members, invitations, and settings.
+- `src/components/project.tsx`: Kanban boards, drag and drop, column settings, and project members.
+- `src/components/task.tsx`: task editing, accessible status selection, and comments.
+- `src/components/ai.tsx`: local/provider mode disclosure, generated previews, and explicit task creation.
+- `src/components/ui.tsx`: accessible dialogs, loading/error states, icons, and data loading.
+- `src/lib/api.ts`: credentialed API calls and shared automatic session refresh.
+- `src/lib/types.ts`: API response types.
 
-## Learn More
+## Styling safely
 
-To learn more about Next.js, take a look at the following resources:
+Each component has a matching `*.module.css` file beside it. Import that module and use `styles["class-name"]`; class names are scoped to that file. Keep responsive rules and state variants in the owning component's module.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`src/components/shared.module.css` contains deliberately shared primitives: buttons, native controls, typography, form layouts, panels, and reusable badges. Feature modules opt into these with CSS Modules `composes`. Editing a shared primitive intentionally affects its consumers; add a local feature rule when a change should affect only one screen. `src/lib/class-names.ts` joins conditional module classes.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Reusable components such as `Avatar`, `Logo`, and `ProjectCard` accept `className` for explicit local overrides. Pass the feature module's class instead of targeting another component's internal class name. Dynamic project colors and progress percentages remain inline because they come from application data.
 
-## Deploy on Vercel
+`src/app/globals.css` is limited to theme variables, document defaults/reset, and the user's reduced-motion preference. Component classes, controls, typography rules, and responsive layouts belong in modules. Avoid adding global class selectors or `:global()` escapes.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+All displayed project data comes from the API. Sessions use HttpOnly cookies rather than browser storage. Kanban tasks can be moved by dragging or by selecting Status in the task dialog. AI proposals only become tasks after the user explicitly adds them.

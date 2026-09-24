@@ -1,21 +1,262 @@
-🧠 Architecture Lesson
+# DevFlow AI
 
-Browser
-│
-▼
-server.ts
-│
-▼
-app.ts
-│
-▼
-routes
-│
-▼
-controller (later)
-│
-▼
-service (later)
-│
-▼
-database (later)
+A developer workspace for organizing projects, collaborating on Kanban boards, and drafting plans with AI assistance. Built as a pnpm monorepo with a Next.js frontend and an Express/PostgreSQL backend.
+
+## What is implemented
+
+| Area           | Features                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Authentication | Email or mobile signup/login, cookie sessions, rotating refresh tokens, logout, email password recovery, single-use reset links |
+| Dashboard      | Workspace/project overview, task statistics, recent tasks, recent activity                                                      |
+| Workspaces     | Create/edit/delete, invitation links, members, owner/admin/member permissions                                                   |
+| Projects       | Create/edit/delete, project membership, an individual Kanban board for each project                                             |
+| Kanban         | Custom columns, completed-column status, task drag and drop, explicit move controls, persistent ordering                        |
+| Tasks          | Title, description, due date, priority, labels, assignee, comments, status through board columns                                |
+| Planning       | Subtask suggestions, project summaries, sprint plans, personal standups; local planner or optional OpenAI provider              |
+| Foundation     | Validated configuration, migrations, structured logs, request limits, origin checks, tests, production builds                   |
+
+Email verification is intentionally deferred. Workspace invitations are copyable links: the administrator shares the generated link. Password recovery uses the separate email integration described below.
+
+## Run locally
+
+Requirements: **Node 22**, **pnpm 10**, and PostgreSQL. Docker is optional if you already have PostgreSQL.
+
+```sh
+nvm use
+pnpm install --frozen-lockfile
+```
+
+If pnpm is missing, enable it with Corepack or install pnpm 10 using your normal Node package setup. Run the following commands from the repository root.
+
+1. Start a database. Compose uses port **5433** to avoid replacing an existing service on 5432:
+
+   ```sh
+   docker compose up -d --wait postgres
+   ```
+
+2. Create configuration files **only if they do not exist**:
+
+   ```sh
+   cp -n apps/server/.env.example apps/server/.env
+   cp -n apps/web/.env.example apps/web/.env.local
+   ```
+
+   The example database URL matches Compose. For an existing database, keep its current `DATABASE_URL`. Replace both JWT secret placeholders with independent random values of at least 32 characters. Generate each with:
+
+   ```sh
+   node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('hex') + '\n')"
+   ```
+
+3. Generate Prisma and apply migrations:
+
+   ```sh
+   pnpm db:generate
+   pnpm db:migrate
+   ```
+
+4. Start both apps:
+
+   ```sh
+   pnpm dev
+   ```
+
+Open [localhost:3000](http://localhost:3000). The API runs on [localhost:5001](http://localhost:5001); its [health endpoint](http://localhost:5001/health) checks that the API is running. Signup creates your account and logs you in. Create a workspace, a project, and your first task. No shared default administrator account/password is installed.
+
+Use `localhost` consistently for both apps: changing one app to `127.0.0.1` affects cookies and origins.
+
+The development frontend explicitly uses port 3000. If that port is occupied, stop the previous frontend instead of silently opening another port. For an intentional additional frontend, add its exact origin to `CORS_ORIGINS` in the API environment and restart the API; for example, `CORS_ORIGINS=http://localhost:2000`. This allowlist is shared by CORS and the browser-write protection. It does not change the main frontend URL or password-recovery links.
+
+## Commands
+
+| Command                             | Purpose                                                   |
+| ----------------------------------- | --------------------------------------------------------- |
+| `pnpm dev`                          | Start web and API together                                |
+| `pnpm dev:web` / `pnpm dev:server`  | Start one app                                             |
+| `pnpm build`                        | Compile backend and build frontend                        |
+| `pnpm lint`                         | Frontend ESLint checks                                    |
+| `pnpm format` / `pnpm format:check` | Format source files / verify formatting                   |
+| `pnpm test`                         | Regression tests with mocked database/provider boundaries |
+| `pnpm test:integration`             | Full HTTP workflow against configured PostgreSQL          |
+| `pnpm db:generate`                  | Regenerate Prisma client/types                            |
+| `pnpm db:migrate`                   | Apply committed migrations without resetting data         |
+| `pnpm db:studio`                    | Open Prisma Studio                                        |
+
+The integration suite creates uniquely named users/workspaces and removes only those fixtures in cleanup. It mocks email and never calls a paid AI service. Use a development/test database. To generate a migration during development: `pnpm --filter server prisma:migrate --name your_change`.
+
+## Configuration
+
+Backend: `apps/server/.env`. Frontend: `apps/web/.env.local`. Examples are committed; real configuration and mail previews are ignored by Git.
+
+| Variable                          | Meaning                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| `NODE_ENV`                        | `development`, `test`, or `production`                                                 |
+| `PORT`                            | API port, default `5001`                                                               |
+| `DATABASE_URL`                    | PostgreSQL connection string                                                           |
+| `WEB_URL`                         | Frontend origin and recovery link base, default `http://localhost:3000`                |
+| `CORS_ORIGINS`                    | Optional comma-separated additional trusted HTTP(S) origins; no wildcards or URL paths |
+| `JWT_ACCESS_SECRET`               | Signs short-lived access JWTs                                                          |
+| `JWT_REFRESH_SECRET`              | Independent secret hashing opaque refresh credentials                                  |
+| `ACCESS_TOKEN_EXPIRY`             | Default `15m`, positive duration up to one day                                         |
+| `REFRESH_TOKEN_EXPIRY`            | Default `7d`, positive duration up to 90 days                                          |
+| `API_COOKIE_SECURE`               | Optional secure cookies in development; production always uses Secure                  |
+| `AI_MODE`                         | `local` (default) or `provider`                                                        |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | Both required in provider mode; server-only                                            |
+| `RESEND_API_KEY` / `MAIL_FROM`    | Production recovery-email credentials and verified sender                              |
+| `MAIL_PREVIEW_DIR`                | Optional local email directory override                                                |
+| `NEXT_PUBLIC_API_URL`             | Browser API base, default `http://localhost:5001/api`                                  |
+
+`NEXT_PUBLIC_API_URL` is embedded in the frontend build; set it before building for deployment.
+
+### Password recovery
+
+In development/tests, emails are saved as private JSON files in **`apps/server/.local/mail/`**. Request a reset for a registered email, then open the newest file and follow its link. Tokens are never returned by the API or printed in API logs. They expire in 30 minutes, can be used once, and changing a password revokes existing sessions.
+
+In production, configure `RESEND_API_KEY` and a verified `MAIL_FROM`. The mailer uses the [Resend email API](https://resend.com/docs/api-reference/emails/send-email). Failed delivery invalidates the token and logs a generic error. Known and unknown accounts receive the same HTTP response. Mobile-only accounts currently have no SMS recovery flow.
+
+### Local planner and AI provider
+
+The app works without an AI key. **Local mode is deterministic planning, not a language model**: it suggests acceptance/implementation/verification tasks, calculates project progress, prioritizes unfinished tasks by priority/due date, and assembles standups from your assigned tasks.
+
+For OpenAI, set `AI_MODE=provider`, provide a key and a model available to your account that supports Responses structured outputs, then restart the API. The implementation uses the [Responses API with structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), disables response storage, validates results with Zod, and times out after 30 seconds. Provider failures return a safe error rather than silently switching engines.
+
+Generation sends selected task/project context to OpenAI only when requested. It excludes credentials, member emails, and comments. Analysis considers at most 200 recently updated tasks; partial project summaries are labeled. Sprint capacity is a **task count**, not hours or story points. Standups use assigned tasks and update timestamps for recent completions. Suggestions are previews; adding suggested subtasks is a separate action that creates regular board tasks referencing the original task in their descriptions.
+
+Provider responses/failures are tested through a mocked HTTP boundary. Live AI calls and real email delivery require your provider configuration and were not used for local verification.
+
+## Understand the code
+
+```text
+apps/
+  web/                    Next.js screens, API client, reusable UI
+  server/
+    prisma/
+      schema.prisma       Models and relationships
+      migrations/         Original auth + additive workspace migration
+    src/
+      config/             Environment validation
+      lib/                Prisma, mail, database types
+      middlewares/        Validation, session authentication, security
+      modules/
+        auth/             Accounts, sessions, password recovery
+        workspaces/       Workspaces, invitations, roles
+        projects/         Projects, members, board columns
+        tasks/            Tasks, ordering, assignees, comments
+        dashboard/        Access-filtered overview/activity
+        ai/               Local planner and provider integration
+      shared/             Authorization, errors, logging, responses
+      app.ts              Express middleware/route composition
+      server.ts           Startup, DB connection, shutdown
+    tests/                HTTP, security, planner, domain, integration
+compose.yaml              Optional local PostgreSQL
+```
+
+### Request flow and layer responsibilities
+
+```text
+Browser → Route → Validation → Controller → Service → Repository → Prisma → PostgreSQL
+```
+
+Routes compose middleware. Zod checks input. Controllers translate service results into HTTP status codes and `ApiResponse`. Services make authentication, permission, and transaction decisions. Repositories accept `PrismaClientOrTransaction`, so methods work inside or outside transactions without importing a singleton. Shared authorization helpers centralize membership checks across features.
+
+Frontend styles use a CSS Module beside each component. Shared controls and layout primitives are composed explicitly from `apps/web/src/components/shared.module.css`; only document defaults and theme variables remain global. See the [frontend styling guide](apps/web/README.md#styling-safely) for where to make local changes without affecting other screens.
+
+For example, moving a task checks project access and the destination column, rejects cross-project moves, then updates ordering transactionally. Per-project database row locks serialize concurrent board mutations. The controller only returns the result.
+
+### Database design
+
+```mermaid
+erDiagram
+  User ||--o{ Authentication : has
+  User ||--o{ Session : has
+  User ||--o{ PasswordReset : requests
+  User ||--o{ WorkspaceMember : joins
+  Workspace ||--o{ WorkspaceMember : includes
+  Workspace ||--o{ WorkspaceInvitation : invites
+  Workspace ||--o{ Project : contains
+  Project ||--o{ ProjectMember : includes
+  Project ||--o{ Column : contains
+  Column ||--o{ Task : contains
+  Task ||--o{ Comment : has
+  Workspace ||--o{ Activity : records
+```
+
+`User` remains a profile. Provider identifiers/password hashes remain in `Authentication`, preserving the existing design for future providers without email/mobile columns on User. New tables extend this design; migrations preserve existing users/authentications.
+
+Each project has one board with **To do / In progress / Done** columns initially. `Column.isDone` defines completion even if the column is renamed. Task status is its column, avoiding a second field that could disagree with the board.
+
+### Permissions
+
+| Action                                           | Owner               | Admin               | Member                        |
+| ------------------------------------------------ | ------------------- | ------------------- | ----------------------------- |
+| View workspace and member list                   | Yes                 | Yes                 | Yes                           |
+| Edit workspace / invite / manage non-owner roles | Yes                 | Yes                 | No                            |
+| Remove/demote owner                              | No                  | No                  | No                            |
+| Delete workspace                                 | Yes                 | No                  | No                            |
+| Create project                                   | Yes                 | Yes                 | Yes                           |
+| Access project                                   | All in workspace    | All in workspace    | Projects they belong to       |
+| Manage project/settings/columns/members          | Yes                 | Yes                 | Creator, while still a member |
+| Create/edit/move/delete tasks                    | Accessible projects | Accessible projects | Accessible projects           |
+| Delete comment                                   | Yes                 | Yes                 | Own comment                   |
+
+Invitation tokens are random, expire in seven days, are stored as hashes, and require an account matching the invited email. Accepting an invite does not upgrade an existing member's role. Removing a workspace member removes their project memberships and clears task assignments there. API checks enforce permissions; hiding buttons is not authorization.
+
+### Authentication decisions
+
+Passwords use bcrypt with a 72-byte maximum to avoid silent truncation. Emails are normalized and exactly one identifier is accepted. Unknown accounts, wrong passwords, and inactive accounts receive identical login errors.
+
+Access tokens are short-lived JWTs; refresh tokens are opaque random credentials with hashed server-side session records. HttpOnly, SameSite=Lax cookies keep tokens out of browser JavaScript. Production cookies are Secure. Atomic refresh rotation detects replay. The frontend serializes refresh requests to avoid rotating twice concurrently.
+
+Every authenticated request checks its session in PostgreSQL. Compared with entirely stateless JWTs, this costs a query but makes logout/reset revocation immediate. Login and reset share a user-row lock to prevent an in-flight login creating a session with a password that has just changed.
+
+### API map
+
+Paths below are under `/api`. Domain routes require an active session. Successful responses are `{ success: true, message, data }`; validation failures include `errors`.
+
+| Resource          | Endpoints                                                                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth              | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password`; `GET /auth/me`        |
+| Workspaces        | `GET/POST /workspaces`; `GET/PATCH/DELETE /workspaces/:id`                                                                                    |
+| Workspace members | `GET /workspaces/:id/members`; `PATCH/DELETE /workspaces/:id/members/:userId`; `POST /workspaces/:id/invitations`; `POST /invitations/accept` |
+| Projects          | `GET/POST /workspaces/:workspaceId/projects`; `GET/PATCH/DELETE /projects/:id`                                                                |
+| Project members   | `GET/POST /projects/:id/members`; `DELETE /projects/:id/members/:userId`                                                                      |
+| Columns           | `POST /projects/:projectId/columns`; `PATCH/DELETE /columns/:id`                                                                              |
+| Tasks             | `GET/POST /projects/:projectId/tasks`; `GET/PATCH/DELETE /tasks/:id`; `PATCH /tasks/:id/move`                                                 |
+| Comments          | `GET/POST /tasks/:id/comments`; `DELETE /comments/:id`                                                                                        |
+| Dashboard         | `GET /dashboard`, optional `workspaceId` query                                                                                                |
+| Planning          | `GET /ai/status`; `POST /ai/subtasks`, `/ai/project-summary`, `/ai/sprint-plan`, `/ai/standup`                                                |
+
+Task creation: `{ title, description?, columnId, priority?, dueDate?, labels?, assigneeId? }`. Priorities: `LOW`, `MEDIUM`, `HIGH`, `URGENT`. Move: `{ columnId, position }`. Subtasks: `{ taskId }`. Summary: `{ projectId }`. Sprint: `{ projectId, goal?, capacity? }`. Standup: `{ workspaceId, date? }`.
+
+## What changed
+
+The repository began with registration/login APIs, an auth schema, a Next.js starter screen, and an architecture sketch. It now contains the application above, additive migrations, integrated UI, recovery/session flows, permission checks, planning tools, configuration examples, and repeatable verification commands.
+
+Production startup was repaired by replacing unresolved TypeScript `@/` imports with relative imports. The API validates configuration and connects to PostgreSQL before listening. Pino handles logs without exposing tokens/SQL values; graceful shutdown closes HTTP and Prisma. HTTP middleware handles malformed JSON, body limits, unknown routes, browser origins, and rate limits.
+
+### Verification completed
+
+Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
+
+- Production builds for the API and frontend, frontend lint, and formatting checks passed.
+- `pnpm test`: 65 passed; the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, and rejection of untrusted origins.
+- `pnpm test:integration`: all 7 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, and password recovery against PostgreSQL.
+- Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
+- At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.
+
+Verification used disposable test accounts and workspaces. Existing account data was preserved. Provider responses and email delivery were mocked; live provider configuration remains a deployment step.
+
+## Production and current boundaries
+
+Build with `pnpm build`, apply migrations, then run `NODE_ENV=production pnpm --filter server start` and `pnpm --filter web start`. Set `NODE_ENV=production` in your deployed API environment; the local example intentionally uses development mode. Configure HTTPS, same-site frontend/API hosting, correct origins, secrets, email delivery, and the frontend API URL before building. Compose credentials are for local development only.
+
+This is a first version of the requested workflow, not a hosted service. Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; use a shared limiter for multiple API instances. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
+
+### Troubleshooting
+
+- **Node version error:** run `nvm use` (Node 22).
+- **Database unreachable:** confirm the URL/port (Compose 5433; existing installations often 5432).
+- **Missing models/tables:** run `pnpm db:generate` and `pnpm db:migrate`.
+- **Unexpected logout/CORS error:** use a consistent hostname and check `NEXT_PUBLIC_API_URL`. The browser's exact origin (scheme, hostname, and port) must match `WEB_URL` or an explicit `CORS_ORIGINS` entry. Restart the API after changing these values. A CORS allowlist does not make cookies work across unrelated sites.
+- **Missing local reset email:** check `apps/server/.local/mail/`; the email must be registered.
+- **AI provider unavailable:** verify key/model access, or use `AI_MODE=local`.
+- **429 response:** respect the retry interval; authentication attempts are rate limited.

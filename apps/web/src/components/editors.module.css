@@ -1,0 +1,60 @@
+.button {
+  composes: button from "./shared.module.css";
+}
+.form-stack {
+  composes: form-stack from "./shared.module.css";
+}
+.modal-actions {
+  composes: modal-actions from "./shared.module.css";
+}
+.muted {
+  composes: muted from "./shared.module.css";
+}
+.native-button {
+  composes: native-button from "./shared.module.css";
+}
+.native-fieldset {
+  composes: native-fieldset from "./shared.module.css";
+}
+.native-input {
+  composes: native-input from "./shared.module.css";
+}
+.native-label {
+  composes: native-label from "./shared.module.css";
+}
+.native-legend {
+  composes: native-legend from "./shared.module.css";
+}
+.native-textarea {
+  composes: native-textarea from "./shared.module.css";
+}
+.primary {
+  composes: primary from "./shared.module.css";
+}
+.secondary {
+  composes: secondary from "./shared.module.css";
+}
+/* Shared primitives are composed explicitly; feature rules stay local. */
+.color-picker {
+  display: flex;
+  gap: 12px;
+}
+.color-picker legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.color-picker button {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #15151d;
+  border-radius: 50%;
+  outline: 1px solid transparent;
+  flex-shrink: 0;
+}
+.color-picker button.selected {
+  outline: 2px solid #d8cff5;
+}
+.color-picker {
+  flex-wrap: wrap;
+}
