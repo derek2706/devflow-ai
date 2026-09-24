@@ -16,6 +16,7 @@ test(
       "integration-refresh-secret-at-least-thirty-two-characters";
     const { default: app } = await import("../src/app");
     const { prisma } = await import("../src/lib/prisma");
+    const { Prisma } = await import("@prisma/client");
     const { mailer } = await import("../src/lib/mail");
     const messages: Array<{ to: string; text: string }> = [];
     mock.method(mailer, "send", async (message) => {
@@ -103,6 +104,133 @@ test(
       let taskId = "";
       let privateProjectId = "";
       let privateColumnId = "";
+
+      // Derive the list from Prisma so future models cannot silently miss RLS.
+      const protectedTables = [
+        ...Prisma.dmmf.datamodel.models.map(
+          (model) => model.dbName ?? model.name,
+        ),
+        "_prisma_migrations",
+      ];
+      await t.test(
+        "all backend tables deny Data API access while retaining owner access",
+        async () => {
+          const tables = await prisma.$queryRaw<
+            Array<{
+              name: string;
+              rlsEnabled: boolean;
+              rlsForced: boolean;
+              hasPolicy: boolean;
+              hasPublicGrant: boolean;
+            }>
+          >`
+            SELECT c.relname AS "name",
+                   c.relrowsecurity AS "rlsEnabled",
+                   c.relforcerowsecurity AS "rlsForced",
+                   EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid) AS "hasPolicy",
+                   EXISTS (
+                     SELECT 1 FROM aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) acl
+                     WHERE acl.grantee = 0
+                   ) AS "hasPublicGrant"
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+              AND c.relname IN (${Prisma.join(protectedTables)})
+          `;
+          assert.deepEqual(
+            tables.map((table) => table.name).sort(),
+            [...protectedTables].sort(),
+          );
+          for (const table of tables) {
+            assert.equal(
+              table.rlsEnabled,
+              true,
+              `${table.name} must enable RLS`,
+            );
+            assert.equal(
+              table.rlsForced,
+              false,
+              `${table.name} must permit its owner`,
+            );
+            assert.equal(
+              table.hasPolicy,
+              false,
+              `${table.name} must default-deny API roles`,
+            );
+            assert.equal(
+              table.hasPublicGrant,
+              false,
+              `${table.name} must revoke PUBLIC grants`,
+            );
+          }
+          const apiGrants = await prisma.$queryRaw<
+            Array<{ tableName: string; roleName: string }>
+          >`
+            SELECT c.relname AS "tableName", r.rolname AS "roleName"
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            CROSS JOIN pg_roles r
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+              AND c.relname IN (${Prisma.join(protectedTables)})
+              AND r.rolname IN ('anon', 'authenticated')
+              AND has_table_privilege(r.oid, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+          `;
+          assert.deepEqual(apiGrants, []);
+          assert.equal(
+            await prisma.authentication.count({
+              where: { userId: ownerUser.id },
+            }),
+            1,
+          );
+          assert.ok(
+            await prisma.session.count({ where: { userId: ownerUser.id } }),
+          );
+        },
+      );
+
+      const [reader] = await prisma.$queryRaw<Array<{ available: boolean }>>`
+        SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pg_read_all_data')
+          AND (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS available
+      `;
+      await t.test(
+        "RLS hides persisted rows even from the built-in read-all role",
+        { skip: !reader?.available },
+        async () => {
+          const rollback = new Error(
+            "Roll back the transaction-local RLS test role",
+          );
+          await assert.rejects(
+            prisma.$transaction(async (transaction) => {
+              // No roles or global grants are created; the role switch is local.
+              await transaction.$executeRaw`SET LOCAL ROLE pg_read_all_data`;
+              for (const table of protectedTables) {
+                const identifier = Prisma.raw(
+                  `public."${table.replaceAll('"', '""')}"`,
+                );
+                const [result] = await transaction.$queryRaw<
+                  Array<{ count: bigint }>
+                >`
+                  SELECT count(*) FROM ${identifier}
+                `;
+                assert.equal(
+                  result?.count,
+                  0n,
+                  `${table} must hide all rows from a non-owner`,
+                );
+              }
+              throw rollback;
+            }),
+            (error: unknown) => error === rollback,
+          );
+          // The pooled connection must be back to the normal application role.
+          assert.equal(
+            await prisma.authentication.count({
+              where: { userId: ownerUser.id },
+            }),
+            1,
+          );
+        },
+      );
 
       await t.test(
         "permissions and invitations enforce workspace and project boundaries",

@@ -109,7 +109,7 @@ Backend: `apps/server/.env`. Frontend: `apps/web/.env.local`. Examples are commi
 | `NEXT_PUBLIC_API_URL`             | Browser API base, default `/api` (same origin)                                           |
 | `API_INTERNAL_URL`                | Local development rewrite target, default `http://127.0.0.1:5001`                        |
 | `TRUST_VERCEL_PROXY`              | Opt-in to Vercel's client-IP header; requires production mode and Vercel's platform flag |
-| `DIRECT_URL`                      | Direct PostgreSQL connection used by Vercel production migrations                        |
+| `DIRECT_URL`                      | Migration connection; use Supabase's Session pooler on port 5432                         |
 
 `NEXT_PUBLIC_API_URL` is embedded in the frontend build; set it before building for deployment.
 
@@ -137,7 +137,7 @@ apps/
   server/
     prisma/
       schema.prisma       Models and relationships
-      migrations/         Original auth + additive workspace migration
+      migrations/         Auth, workspace, and database-access migrations
     src/
       config/             Environment validation
       lib/                Prisma, mail, database types
@@ -246,7 +246,7 @@ Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
 - Production builds for the API and frontend, frontend lint, and formatting checks passed. Next.js 16.3.6 and Prisma 6.19.3 are used; the production dependency audit reports no known vulnerabilities.
 - The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
 - `pnpm test`: 90 passed (79 backend, 9 Next/Express bridge, 2 migration guards); the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, and rejection of untrusted origins.
-- `pnpm test:integration`: all 7 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, and password recovery against PostgreSQL.
+- `pnpm test:integration`: all 9 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, password recovery, and database row-level security against PostgreSQL.
 - Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
 - At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.
 
@@ -254,7 +254,7 @@ Verification used disposable test accounts and workspaces. Existing account data
 
 ## Production and current boundaries
 
-The [Vercel deployment guide](docs/DEPLOYMENT.md) explains how to host both apps in one Vercel project, with a separate Neon PostgreSQL database. Use Vercel Hobby and Neon Free for a personal, non-commercial demo. Account setup, database creation, and GitHub authorization are required before it can go live.
+The [Vercel deployment guide](docs/DEPLOYMENT.md) explains how to host both apps in one Vercel project, with a separate Supabase PostgreSQL database. Use Vercel Hobby and Supabase Free for a personal, non-commercial demo. Account setup, database creation, and GitHub authorization are required before it can go live.
 
 The Next.js API route delegates to the existing Express backend. The browser uses `/api` on the same HTTPS origin, so cookies work without a separate API domain. `pnpm build:vercel` generates Prisma, compiles the backend, applies migrations only for Vercel Production builds, and builds Next.js. `apps/web/vercel.json` sets the deployment commands; choose `apps/web` as the Vercel Root Directory and include files outside that directory.
 
