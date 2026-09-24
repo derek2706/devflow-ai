@@ -11,6 +11,5 @@ export const prisma =
     log: [],
   });
 
-if (process.env.NODE_ENV !== "production") {
-  global.prisma = prisma;
-}
+// Reuse the pool across hot reloads and warm serverless invocations alike.
+global.prisma = prisma;

@@ -68,18 +68,21 @@ The development frontend explicitly uses port 3000. If that port is occupied, st
 
 ## Commands
 
-| Command                             | Purpose                                                   |
-| ----------------------------------- | --------------------------------------------------------- |
-| `pnpm dev`                          | Start web and API together                                |
-| `pnpm dev:web` / `pnpm dev:server`  | Start one app                                             |
-| `pnpm build`                        | Compile backend and build frontend                        |
-| `pnpm lint`                         | Frontend ESLint checks                                    |
-| `pnpm format` / `pnpm format:check` | Format source files / verify formatting                   |
-| `pnpm test`                         | Regression tests with mocked database/provider boundaries |
-| `pnpm test:integration`             | Full HTTP workflow against configured PostgreSQL          |
-| `pnpm db:generate`                  | Regenerate Prisma client/types                            |
-| `pnpm db:migrate`                   | Apply committed migrations without resetting data         |
-| `pnpm db:studio`                    | Open Prisma Studio                                        |
+| Command                             | Purpose                                                      |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `pnpm dev`                          | Start web and API together                                   |
+| `pnpm dev:web` / `pnpm dev:server`  | Start one app                                                |
+| `pnpm build`                        | Compile backend and build frontend                           |
+| `pnpm build:production`             | Generate Prisma and build both apps for hosting              |
+| `pnpm start:production`             | Serve the built frontend and API together                    |
+| `pnpm build:vercel`                 | Build the Vercel release and migrate its production database |
+| `pnpm lint`                         | Frontend ESLint checks                                       |
+| `pnpm format` / `pnpm format:check` | Format source files / verify formatting                      |
+| `pnpm test`                         | Regression tests with mocked database/provider boundaries    |
+| `pnpm test:integration`             | Full HTTP workflow against configured PostgreSQL             |
+| `pnpm db:generate`                  | Regenerate Prisma client/types                               |
+| `pnpm db:migrate`                   | Apply committed migrations without resetting data            |
+| `pnpm db:studio`                    | Open Prisma Studio                                           |
 
 The integration suite creates uniquely named users/workspaces and removes only those fixtures in cleanup. It mocks email and never calls a paid AI service. Use a development/test database. To generate a migration during development: `pnpm --filter server prisma:migrate --name your_change`.
 
@@ -87,23 +90,26 @@ The integration suite creates uniquely named users/workspaces and removes only t
 
 Backend: `apps/server/.env`. Frontend: `apps/web/.env.local`. Examples are committed; real configuration and mail previews are ignored by Git.
 
-| Variable                          | Meaning                                                                                |
-| --------------------------------- | -------------------------------------------------------------------------------------- |
-| `NODE_ENV`                        | `development`, `test`, or `production`                                                 |
-| `PORT`                            | API port, default `5001`                                                               |
-| `DATABASE_URL`                    | PostgreSQL connection string                                                           |
-| `WEB_URL`                         | Frontend origin and recovery link base, default `http://localhost:3000`                |
-| `CORS_ORIGINS`                    | Optional comma-separated additional trusted HTTP(S) origins; no wildcards or URL paths |
-| `JWT_ACCESS_SECRET`               | Signs short-lived access JWTs                                                          |
-| `JWT_REFRESH_SECRET`              | Independent secret hashing opaque refresh credentials                                  |
-| `ACCESS_TOKEN_EXPIRY`             | Default `15m`, positive duration up to one day                                         |
-| `REFRESH_TOKEN_EXPIRY`            | Default `7d`, positive duration up to 90 days                                          |
-| `API_COOKIE_SECURE`               | Optional secure cookies in development; production always uses Secure                  |
-| `AI_MODE`                         | `local` (default) or `provider`                                                        |
-| `OPENAI_API_KEY` / `OPENAI_MODEL` | Both required in provider mode; server-only                                            |
-| `RESEND_API_KEY` / `MAIL_FROM`    | Production recovery-email credentials and verified sender                              |
-| `MAIL_PREVIEW_DIR`                | Optional local email directory override                                                |
-| `NEXT_PUBLIC_API_URL`             | Browser API base, default `http://localhost:5001/api`                                  |
+| Variable                          | Meaning                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `NODE_ENV`                        | `development`, `test`, or `production`                                                   |
+| `PORT`                            | API port, default `5001`                                                                 |
+| `DATABASE_URL`                    | PostgreSQL connection string                                                             |
+| `WEB_URL`                         | Frontend origin and recovery link base, default `http://localhost:3000`                  |
+| `CORS_ORIGINS`                    | Optional comma-separated additional trusted HTTP(S) origins; no wildcards or URL paths   |
+| `JWT_ACCESS_SECRET`               | Signs short-lived access JWTs                                                            |
+| `JWT_REFRESH_SECRET`              | Independent secret hashing opaque refresh credentials                                    |
+| `ACCESS_TOKEN_EXPIRY`             | Default `15m`, positive duration up to one day                                           |
+| `REFRESH_TOKEN_EXPIRY`            | Default `7d`, positive duration up to 90 days                                            |
+| `API_COOKIE_SECURE`               | Optional secure cookies in development; production always uses Secure                    |
+| `AI_MODE`                         | `local` (default) or `provider`                                                          |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | Both required in provider mode; server-only                                              |
+| `RESEND_API_KEY` / `MAIL_FROM`    | Production recovery-email credentials and verified sender                                |
+| `MAIL_PREVIEW_DIR`                | Optional local email directory override                                                  |
+| `NEXT_PUBLIC_API_URL`             | Browser API base, default `/api` (same origin)                                           |
+| `API_INTERNAL_URL`                | Local development rewrite target, default `http://127.0.0.1:5001`                        |
+| `TRUST_VERCEL_PROXY`              | Opt-in to Vercel's client-IP header; requires production mode and Vercel's platform flag |
+| `DIRECT_URL`                      | Migration connection; use Supabase's Session pooler on port 5432                         |
 
 `NEXT_PUBLIC_API_URL` is embedded in the frontend build; set it before building for deployment.
 
@@ -131,7 +137,7 @@ apps/
   server/
     prisma/
       schema.prisma       Models and relationships
-      migrations/         Original auth + additive workspace migration
+      migrations/         Auth, workspace, and database-access migrations
     src/
       config/             Environment validation
       lib/                Prisma, mail, database types
@@ -237,9 +243,10 @@ Production startup was repaired by replacing unresolved TypeScript `@/` imports 
 
 Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
 
-- Production builds for the API and frontend, frontend lint, and formatting checks passed.
-- `pnpm test`: 65 passed; the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, and rejection of untrusted origins.
-- `pnpm test:integration`: all 7 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, and password recovery against PostgreSQL.
+- Production builds for the API and frontend, frontend lint, and formatting checks passed. Next.js 16.3.6 and Prisma 6.19.3 are used; the production dependency audit reports no known vulnerabilities.
+- The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
+- `pnpm test`: 90 passed (79 backend, 9 Next/Express bridge, 2 migration guards); the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, and rejection of untrusted origins.
+- `pnpm test:integration`: all 9 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, password recovery, and database row-level security against PostgreSQL.
 - Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
 - At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.
 
@@ -247,9 +254,12 @@ Verification used disposable test accounts and workspaces. Existing account data
 
 ## Production and current boundaries
 
-Build with `pnpm build`, apply migrations, then run `NODE_ENV=production pnpm --filter server start` and `pnpm --filter web start`. Set `NODE_ENV=production` in your deployed API environment; the local example intentionally uses development mode. Configure HTTPS, same-site frontend/API hosting, correct origins, secrets, email delivery, and the frontend API URL before building. Compose credentials are for local development only.
+The [Vercel deployment guide](docs/DEPLOYMENT.md) explains how to host both apps in one Vercel project, with a separate Supabase PostgreSQL database. Use Vercel Hobby and Supabase Free for a personal, non-commercial demo. Account setup, database creation, and GitHub authorization are required before it can go live.
 
-This is a first version of the requested workflow, not a hosted service. Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; use a shared limiter for multiple API instances. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
+The Next.js API route delegates to the existing Express backend. The browser uses `/api` on the same HTTPS origin, so cookies work without a separate API domain. `pnpm build:vercel` generates Prisma, compiles the backend, applies migrations only for Vercel Production builds, and builds Next.js. `apps/web/vercel.json` sets the deployment commands; choose `apps/web` as the Vercel Root Directory and include files outside that directory.
+
+`DATABASE_URL` uses a pooled database connection; `DIRECT_URL` is reserved for production migrations. Production and preview databases/secrets should be separate. Recovery email and paid AI providers remain optional configuration. See the guide for variables, validation, limits, updates, and rollback.
+The repository is prepared for deployment; a live service still requires the account and database setup above. Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; Vercel can create multiple function instances, so use a shared limiter before broader public use. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
 
 ### Troubleshooting
 

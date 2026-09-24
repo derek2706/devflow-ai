@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import type { AddressInfo } from "node:net";
-import express from "express";
+import express, {
+  type Request,
+  type RequestHandler,
+  type Response,
+} from "express";
 import {
   rateLimit,
+  rateLimitClientIp,
   securityHeaders,
   verifyOrigin,
 } from "../src/middlewares/security";
 import { errorHandler } from "../src/shared/errors/errorHandler";
+import { ApiError } from "../src/shared/errors/ApiError";
 
 process.env.NODE_ENV = "test";
 process.env.WEB_URL = "http://localhost:3000";
@@ -70,4 +76,142 @@ test("request limits reject excess attempts and cannot be bypassed by an untrust
       server.closeAllConnections();
     });
   }
+});
+
+function proxyEnvironment(
+  context: TestContext,
+  flags: { TRUST_VERCEL_PROXY?: string; VERCEL?: string; NODE_ENV?: string },
+) {
+  const names = ["TRUST_VERCEL_PROXY", "VERCEL", "NODE_ENV"] as const;
+  const previous = Object.fromEntries(
+    names.map((name) => [name, process.env[name]]),
+  );
+  for (const name of names) {
+    if (flags[name] === undefined) delete process.env[name];
+    else process.env[name] = flags[name];
+  }
+  context.after(() => {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  });
+}
+
+function requestWithHeaders(headers: Request["headers"]): Request {
+  return { headers, ip: "127.0.0.1" } as Request;
+}
+
+function limitedStatus(limiter: RequestHandler, headers: Request["headers"]) {
+  let status = 200;
+  limiter(
+    requestWithHeaders(headers),
+    { setHeader: () => undefined } as unknown as Response,
+    (error?: unknown) => {
+      if (error instanceof ApiError) status = error.statusCode;
+    },
+  );
+  return status;
+}
+
+test("client-IP headers are ignored unless every Vercel trust condition is met", (context) => {
+  proxyEnvironment(context, { NODE_ENV: "production", VERCEL: "1" });
+  const limiter = rateLimit(1, 60_000);
+  assert.equal(
+    limitedStatus(limiter, { "x-vercel-forwarded-for": "203.0.113.1" }),
+    200,
+  );
+  assert.equal(
+    limitedStatus(limiter, { "x-vercel-forwarded-for": "203.0.113.2" }),
+    429,
+  );
+
+  for (const flags of [
+    { TRUST_VERCEL_PROXY: "false", VERCEL: "1", NODE_ENV: "production" },
+    { TRUST_VERCEL_PROXY: "true", VERCEL: "0", NODE_ENV: "production" },
+    { TRUST_VERCEL_PROXY: "true", VERCEL: "1", NODE_ENV: "test" },
+  ]) {
+    Object.assign(process.env, flags);
+    assert.equal(
+      rateLimitClientIp(
+        requestWithHeaders({ "x-vercel-forwarded-for": "203.0.113.1" }),
+      ),
+      "127.0.0.1",
+    );
+  }
+});
+
+test("explicit Vercel ingress trust limits valid IPv4 and IPv6 clients independently", (context) => {
+  proxyEnvironment(context, {
+    TRUST_VERCEL_PROXY: "true",
+    VERCEL: "1",
+    NODE_ENV: "production",
+  });
+  const limiter = rateLimit(1, 60_000);
+  const ipv4 = { "x-vercel-forwarded-for": "203.0.113.1" };
+  const ipv6 = { "x-vercel-forwarded-for": "2001:db8::1" };
+  assert.equal(limitedStatus(limiter, ipv4), 200);
+  assert.equal(limitedStatus(limiter, ipv6), 200);
+  assert.equal(limitedStatus(limiter, ipv4), 429);
+  assert.equal(limitedStatus(limiter, ipv6), 429);
+});
+
+test("invalid, repeated, or chained Vercel client-IP headers fall back to the connection IP", (context) => {
+  proxyEnvironment(context, {
+    TRUST_VERCEL_PROXY: "true",
+    VERCEL: "1",
+    NODE_ENV: "production",
+  });
+  const invalid: Array<string | string[] | undefined> = [
+    undefined,
+    "",
+    "not-an-ip",
+    "203.0.113.1:443",
+    "[2001:db8::1]",
+    "203.0.113.1, 203.0.113.2",
+    ["203.0.113.1", "203.0.113.2"],
+  ];
+  for (const value of invalid) {
+    assert.equal(
+      rateLimitClientIp(
+        requestWithHeaders({ "x-vercel-forwarded-for": value }),
+      ),
+      "127.0.0.1",
+    );
+  }
+  const limiter = rateLimit(1, 60_000);
+  assert.equal(
+    limitedStatus(limiter, { "x-vercel-forwarded-for": invalid[2] }),
+    200,
+  );
+  assert.equal(
+    limitedStatus(limiter, { "x-vercel-forwarded-for": invalid[3] }),
+    429,
+  );
+});
+
+test("Vercel opt-in never accepts X-Forwarded-For as a rate-limit identity", (context) => {
+  proxyEnvironment(context, {
+    TRUST_VERCEL_PROXY: "true",
+    VERCEL: "1",
+    NODE_ENV: "production",
+  });
+  const limiter = rateLimit(1, 60_000);
+  assert.equal(
+    limitedStatus(limiter, { "x-forwarded-for": "203.0.113.1" }),
+    200,
+  );
+  assert.equal(
+    limitedStatus(limiter, { "x-forwarded-for": "203.0.113.2" }),
+    429,
+  );
+  assert.equal(
+    rateLimitClientIp(
+      requestWithHeaders({
+        "x-vercel-forwarded-for": "2001:db8::1",
+        "x-forwarded-for": "203.0.113.99",
+      }),
+    ),
+    "2001:db8::1",
+  );
 });

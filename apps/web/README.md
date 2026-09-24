@@ -11,7 +11,9 @@ pnpm --filter web lint
 pnpm --filter web build
 ```
 
-The frontend runs at http://localhost:3000 and connects to http://localhost:5001/api by default. Copy `.env.example` to `.env.local` to change the public API URL.
+The frontend runs at http://localhost:3000 and calls `/api` on the same origin. During development, Next proxies these requests to the API at http://127.0.0.1:5001. Copy `.env.example` to `.env.local` only if you need to change these defaults.
+
+For hosting, `pnpm build:production` at the repository root generates Prisma and builds Express before Next.js. The Pages API route at `src/pages/api/[[...path]].ts` delegates native HTTP requests to the compiled Express app. The frontend and API are deployed together as one Next.js project; no custom server is required. See the [Vercel deployment guide](../../docs/DEPLOYMENT.md) for account setup, database configuration, migrations, and verification.
 
 ## Structure
 
