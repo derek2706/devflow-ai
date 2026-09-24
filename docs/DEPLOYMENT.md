@@ -4,23 +4,32 @@ Deploy the frontend and backend as **one Vercel project**. Next.js serves the pa
 
 PostgreSQL runs on a database provider. Use **Vercel Hobby** and **Supabase Free** for the requested $0 demo. Hobby is for personal, non-commercial use. Review the current [Hobby limits](https://vercel.com/docs/plans/hobby) and [Supabase plans](https://supabase.com/pricing) when signing up. Do not enable paid upgrades for this demo.
 
+## Current deployment
+
+Production is [devflow-ai-web-ten.vercel.app](https://devflow-ai-web-ten.vercel.app), served by `devflow-ai-web` from `codex/deploy-vercel`, with Supabase PostgreSQL. On September 24, 2026, the configuration check and migrations passed; the live health/readiness endpoints and frontend assets returned 200. Synthetic email/mobile logins returned 401, malformed requests returned 400, and untrusted origins returned 403. These checks created no accounts or application records.
+
+The startup 500 was fixed by correcting Production's port and token lifetimes and replacing invalid JWT secrets. Environment changes require a fresh deployment. Keep the generated valid secrets for subsequent releases.
+
+DevFlow uses its existing email/mobile authentication and Prisma database connection. `NEXT_PUBLIC_SUPABASE_URL`, a Supabase publishable key, and Supabase SSR middleware do not configure this login system. DevFlow JWT secrets are generated independently, while Prisma uses the private `DATABASE_URL`. Local accounts are not copied to the hosted database; use Sign up on the production site for an account that previously existed only locally.
+
 ## Create accounts and a database
 
 1. Create or sign into [Vercel](https://vercel.com/signup), selecting Hobby. Complete terms and GitHub authorization yourself, granting access to `derek2706/devflow-ai`.
 2. Open your existing project in the [Supabase dashboard](https://supabase.com/dashboard). Use a dedicated DevFlow database/project so existing unrelated tables cannot conflict with the application's migrations. Keep the Free plan selected.
 3. Click **Connect** at the top of the project. Select **URI** as the connection format.
 4. Choose **Transaction pooler** for `DATABASE_URL` (normally port **6543**). Replace `[YOUR-PASSWORD]` with your database password, URL-encoding special characters. For Prisma 6, add `?pgbouncer=true&connection_limit=1&sslmode=require` if there is no query string; otherwise append the missing parameters with `&`.
-5. Choose **Session pooler** for `DIRECT_URL` (normally port **5432**). Use `sslmode=require` and omit `pgbouncer=true`. Despite this variable's name, the Supabase session pooler is the IPv4-compatible migration connection. The direct `db.<project-ref>.supabase.co` endpoint can require IPv6 and may not be reachable from Vercel without an IPv4 add-on; you do not need that paid add-on with the shared session pooler.
-6. Enter both full PostgreSQL URIs in Vercel's **Production** environment. These are database credentials, not a Supabase project URL, publishable/anon key, or service-role API key. Do not use `localhost` or commit the URLs.
+5. `DIRECT_URL` is optional for Supabase's shared transaction pooler. If missing or empty, the build derives its **Session pooler** connection by changing port **6543** to **5432**, preserving the host, credentials, database, and TLS settings, and removing `pgbouncer`, `connection_limit`, and `pool_timeout`. This works only for a valid `*.pooler.supabase.com:6543` URL. To override it, copy the **Session pooler** URI into `DIRECT_URL`, use `sslmode=require`, and omit `pgbouncer=true`. A malformed or whitespace-only override fails instead of using the fallback.
+6. Enter `DATABASE_URL` and, if you chose an override, `DIRECT_URL` in Vercel's **Production** environment. These are database credentials, not a Supabase project URL, publishable/anon key, or service-role API key. Do not use `localhost` or commit the URLs. Supabase's shared session pooler supports IPv4; its direct `db.<project-ref>.supabase.co` endpoint can require IPv6 or a paid IPv4 add-on.
 
 Supabase connection examples use placeholders only:
 
 ```text
 DATABASE_URL=postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require
+# Optional explicit migration override:
 DIRECT_URL=postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@POOLER_HOST:5432/postgres?sslmode=require
 ```
 
-Copy the actual host and user from **Connect** rather than inventing them. If you do not know the database password, use Supabase's database-password reset flow yourself, then update both Vercel variables. The app keeps its own accounts/sessions; it uses Supabase as PostgreSQL, not Supabase Auth.
+Copy the actual host and user from **Connect** rather than inventing them. If you do not know the database password, use Supabase's database-password reset flow yourself, then update `DATABASE_URL` and any explicit `DIRECT_URL`. The app keeps its own accounts/sessions; it uses Supabase as PostgreSQL, not Supabase Auth.
 
 The committed security migration enables row-level security with no public policies on DevFlow's tables and revokes public/Supabase anonymous access. Prisma connects as the table owner or a backend role with `BYPASSRLS`; the application enforces member permissions. Existing Supabase APIs for unrelated tables remain unchanged. Keep the database password and Supabase service-role key server-only. See [Supabase's Prisma guide](https://supabase.com/docs/guides/database/prisma) and [pooler connection guidance](https://supabase.com/docs/guides/database/connecting-to-postgres).
 
@@ -38,7 +47,7 @@ The existing Vercel project is `devflow-ai-web`, connected to [the repository](h
 | Output directory                         | Next.js default            |
 | Production branch                        | `codex/deploy-vercel`      |
 
-If the initial import selects `main`, change **Settings → Environments → Production → Branch Tracking** to `codex/deploy-vercel`, then create a new production deployment from that branch. Do not promote a preview built without Production variables: the production build must run with them to apply migrations.
+If the initial import selects `main`, change **Settings → Environments → Production → Branch Tracking** to `codex/deploy-vercel`, then create a new production deployment from that branch's latest commit. Confirm the source branch and commit in the deployment details. Redeploying an older `main` deployment rebuilds that older commit and misses the deployment fixes. Do not promote a preview built without Production variables: the production build must run with them to apply migrations.
 
 The monorepo setting matters because Next imports `apps/server/dist` and uses dependencies from the root lockfile. Do not create a second project for `apps/server`.
 
@@ -46,15 +55,25 @@ The monorepo setting matters because Next imports `apps/server/dist` and uses de
 
 Set these for **Production** before deploying:
 
-| Variable              | Value                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Supabase Transaction pooler URI (6543), TLS, `pgbouncer=true`, small connection limit |
-| `DIRECT_URL`          | Supabase Session pooler URI (5432), TLS, for migrations                               |
-| `JWT_ACCESS_SECRET`   | New random secret, at least 32 characters                                             |
-| `JWT_REFRESH_SECRET`  | Different random secret, at least 32 characters                                       |
-| `NEXT_PUBLIC_API_URL` | `/api`                                                                                |
-| `AI_MODE`             | `local`                                                                               |
-| `TRUST_VERCEL_PROXY`  | `true`                                                                                |
+| Variable              | Value                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Supabase Transaction pooler URI (6543), TLS, `pgbouncer=true`, small connection limit                               |
+| `DIRECT_URL`          | Optional Session pooler URI (5432) override; derived from a valid Supabase shared transaction URL when absent/empty |
+| `JWT_ACCESS_SECRET`   | New random secret, at least 32 characters                                                                           |
+| `JWT_REFRESH_SECRET`  | Different random secret, at least 32 characters                                                                     |
+| `NEXT_PUBLIC_API_URL` | `/api`                                                                                                              |
+| `AI_MODE`             | `local`                                                                                                             |
+| `TRUST_VERCEL_PROXY`  | `true`                                                                                                              |
+
+These additional variables are optional, but must contain valid values when present:
+
+| Variable               | Recommended value | Validation                      |
+| ---------------------- | ----------------- | ------------------------------- |
+| `PORT`                 | `5001`            | Integer from 1 to 65535         |
+| `ACCESS_TOKEN_EXPIRY`  | `15m`             | Positive duration up to one day |
+| `REFRESH_TOKEN_EXPIRY` | `7d`              | Positive duration up to 90 days |
+
+Set those values or remove the variables entirely to use their defaults. **Do not leave them blank:** an empty value fails configuration validation and makes every API endpoint return 500. `PORT` is still validated even though Vercel owns the HTTP listener. Duration units are `s`, `m`, `h`, or `d`, for example `15m` or `7d`.
 
 Preserve the existing JWT secrets when updating this deployment. For a fresh installation, generate each JWT secret separately in your terminal:
 
@@ -68,7 +87,11 @@ Only `NEXT_PUBLIC_API_URL` belongs in the browser. Never prefix database URLs, J
 
 ## Build and verification
 
-The build generates Prisma, compiles Express, applies committed migrations **only in a Vercel Production build** using `DIRECT_URL`, then builds Next.js with its API function. Migrations use `prisma migrate deploy` and never reset the database. They run during build, not during API requests. Migration failure stops deployment. A later build failure can leave migrations applied, so schema changes must remain compatible with the previous app release.
+The local regression suite currently passes 106 tests: 79 backend, 12 Next/Express bridge, 9 migration guards, and 6 production configuration guards. The bridge tests cover startup diagnostics, generic error responses, and preservation of separate session cookies. Local test results and a successful build do not establish the hosted API's health; complete the live checks below after each release.
+
+The build generates Prisma, compiles Express, validates API configuration, applies committed migrations, then builds Next.js with its API function. **Configuration validation and migrations run only in a Vercel Production build.** `node scripts/vercel-validate.mjs` calls the compiled backend's environment validator after the Express build and before migrations; invalid configuration stops the build with a safe error before changing the database. Preview and local builds skip this production check.
+
+Migrations use an explicit `DIRECT_URL` or the Supabase shared-pooler fallback above. Other database providers and unsupported connection modes require an explicit migration URL. Migrations use `prisma migrate deploy` and never reset the database. They run during build, not during API requests. Migration failure stops deployment. A later build failure can leave migrations applied, so schema changes must remain compatible with the previous app release.
 
 Once Vercel reports Ready, open its assigned HTTPS URL and check:
 
@@ -89,12 +112,14 @@ Migrations are skipped for previews. Initialize that isolated database with `pnp
 ## What changed
 
 - A Next Pages API route delegates native HTTP requests to the existing Express backend, preserving paths, status codes, raw request bodies, and multiple cookies.
+- Startup diagnostics identify the failing stage and log only approved error identifiers and configuration key names, while clients receive a generic 500 response.
 - Next's body parser is disabled for this route, retaining Express's body parsing and request-size limits.
 - Prisma is reused within warm runtimes; use pooled database connections for serverless traffic.
 - An additive security migration protects DevFlow tables from Supabase's public Data API while preserving backend access.
 - `/api/health/ready` checks the database with a deadline and safe error response.
 - Trusted Vercel client-IP handling requires an explicit opt-in and validated header.
 - `scripts/vercel-migrate.mjs` applies production migrations using the migration URL and skips previews.
+- `scripts/vercel-validate.mjs` validates production API configuration before migrations, reporting a fixed safe error when configuration or module loading fails.
 - `apps/web/vercel.json` defines build/install commands, pins pnpm through Corepack, and selects the region.
 - Next.js and Prisma were updated to patched versions. Targeted dependency overrides in `pnpm-workspace.yaml` resolve the remaining Express query parser and Prisma configuration advisories.
 - Local development keeps ports 3000/5001. Next forwards local `/api` requests to the separate API; hosted builds use the integrated API route.
@@ -109,10 +134,21 @@ Migrations are skipped for previews. Initialize that isolated database with `pnp
 
 ## Updates and troubleshooting
 
-Vercel's Git integration normally deploys updates to the production branch automatically. Use isolated previews before releasing changes. A Vercel rollback changes application code, not database migrations; only roll back to compatible code. Never run `prisma migrate reset` against the hosted database.
+Vercel's Git integration normally deploys updates to the production branch automatically. For this project, verify that the release uses the latest commit on `codex/deploy-vercel`. When manually creating a production deployment, select that branch; the Redeploy action on an old `main` deployment retains its old source commit. Use isolated previews before releasing changes. A Vercel rollback changes application code, not database migrations; only roll back to compatible code. Never run `prisma migrate reset` against the hosted database.
+
+If every API endpoint returns 500, inspect the function's runtime logs for `DevFlow AI API failure.`. Its `stage` identifies where startup or handling failed:
+
+| Stage                    | What to check                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `environment-module`     | Compiled `apps/server/dist/config/env.js` and its dependencies are included in the deployment               |
+| `environment-validation` | Variables named in `configurationKeys` have valid values in the deployment's environment                    |
+| `application-module`     | Compiled Express app, dependencies, generated Prisma client, and native binaries are included               |
+| `request-handling`       | An unhandled failure occurred after the app loaded; use the approved error name/code to guide investigation |
+
+Diagnostics include only an approved error name/code, recognized configuration key names, and an approved missing-module identifier when available. They never include configuration values, raw error messages/stacks, database URLs, authorization headers, or request bodies. For `environment-validation`, check blank `PORT`, `ACCESS_TOKEN_EXPIRY`, and `REFRESH_TOKEN_EXPIRY` first when those keys are listed. JWT secrets must each contain at least 32 characters. Preserve existing valid secrets; replacing a secret affects existing sessions. After correcting environment variables, create a production deployment using the latest deployment-branch commit and repeat the health checks.
 
 - **Missing backend/Prisma module:** verify the root build command and inclusion of files outside `apps/web`.
-- **Migration failed:** check `DIRECT_URL`, TLS, database availability, and migration history. Build logs avoid raw database connection errors.
+- **Migration failed:** check any explicit `DIRECT_URL`, or the supported Supabase `DATABASE_URL` fallback, TLS, database availability, and migration history. Build logs include recognized Prisma error codes such as `P1000` (credentials), `P1001` (connection), `P3005` (nonempty schema), or `P3018` (migration failure), without raw database errors or URLs.
 - **Readiness 503:** check database variables and provider availability.
 - **Login 403 or loops:** use the canonical HTTPS domain, `/api`, and the correct environment's `WEB_URL`.
 - **Preview has no tables:** initialize its isolated database.

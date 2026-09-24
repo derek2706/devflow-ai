@@ -90,28 +90,30 @@ The integration suite creates uniquely named users/workspaces and removes only t
 
 Backend: `apps/server/.env`. Frontend: `apps/web/.env.local`. Examples are committed; real configuration and mail previews are ignored by Git.
 
-| Variable                          | Meaning                                                                                  |
-| --------------------------------- | ---------------------------------------------------------------------------------------- |
-| `NODE_ENV`                        | `development`, `test`, or `production`                                                   |
-| `PORT`                            | API port, default `5001`                                                                 |
-| `DATABASE_URL`                    | PostgreSQL connection string                                                             |
-| `WEB_URL`                         | Frontend origin and recovery link base, default `http://localhost:3000`                  |
-| `CORS_ORIGINS`                    | Optional comma-separated additional trusted HTTP(S) origins; no wildcards or URL paths   |
-| `JWT_ACCESS_SECRET`               | Signs short-lived access JWTs                                                            |
-| `JWT_REFRESH_SECRET`              | Independent secret hashing opaque refresh credentials                                    |
-| `ACCESS_TOKEN_EXPIRY`             | Default `15m`, positive duration up to one day                                           |
-| `REFRESH_TOKEN_EXPIRY`            | Default `7d`, positive duration up to 90 days                                            |
-| `API_COOKIE_SECURE`               | Optional secure cookies in development; production always uses Secure                    |
-| `AI_MODE`                         | `local` (default) or `provider`                                                          |
-| `OPENAI_API_KEY` / `OPENAI_MODEL` | Both required in provider mode; server-only                                              |
-| `RESEND_API_KEY` / `MAIL_FROM`    | Production recovery-email credentials and verified sender                                |
-| `MAIL_PREVIEW_DIR`                | Optional local email directory override                                                  |
-| `NEXT_PUBLIC_API_URL`             | Browser API base, default `/api` (same origin)                                           |
-| `API_INTERNAL_URL`                | Local development rewrite target, default `http://127.0.0.1:5001`                        |
-| `TRUST_VERCEL_PROXY`              | Opt-in to Vercel's client-IP header; requires production mode and Vercel's platform flag |
-| `DIRECT_URL`                      | Migration connection; use Supabase's Session pooler on port 5432                         |
+| Variable                          | Meaning                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------ |
+| `NODE_ENV`                        | `development`, `test`, or `production`                                                     |
+| `PORT`                            | Optional API port, default `5001`; omit or set a valid integer from 1 to 65535             |
+| `DATABASE_URL`                    | PostgreSQL connection string                                                               |
+| `WEB_URL`                         | Frontend origin and recovery link base, default `http://localhost:3000`                    |
+| `CORS_ORIGINS`                    | Optional comma-separated additional trusted HTTP(S) origins; no wildcards or URL paths     |
+| `JWT_ACCESS_SECRET`               | Signs short-lived access JWTs                                                              |
+| `JWT_REFRESH_SECRET`              | Independent secret hashing opaque refresh credentials                                      |
+| `ACCESS_TOKEN_EXPIRY`             | Default `15m`, positive duration up to one day                                             |
+| `REFRESH_TOKEN_EXPIRY`            | Default `7d`, positive duration up to 90 days                                              |
+| `API_COOKIE_SECURE`               | Optional secure cookies in development; production always uses Secure                      |
+| `AI_MODE`                         | `local` (default) or `provider`                                                            |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | Both required in provider mode; server-only                                                |
+| `RESEND_API_KEY` / `MAIL_FROM`    | Production recovery-email credentials and verified sender                                  |
+| `MAIL_PREVIEW_DIR`                | Optional local email directory override                                                    |
+| `NEXT_PUBLIC_API_URL`             | Browser API base, default `/api` (same origin)                                             |
+| `API_INTERNAL_URL`                | Local development rewrite target, default `http://127.0.0.1:5001`                          |
+| `TRUST_VERCEL_PROXY`              | Opt-in to Vercel's client-IP header; requires production mode and Vercel's platform flag   |
+| `DIRECT_URL`                      | Optional migration override; Supabase shared pooler URLs can derive the session connection |
 
 `NEXT_PUBLIC_API_URL` is embedded in the frontend build; set it before building for deployment.
+
+`PORT`, `ACCESS_TOKEN_EXPIRY`, and `REFRESH_TOKEN_EXPIRY` must be absent or contain valid values. Empty strings do not select their defaults and prevent the API from starting. Use `PORT=5001`, `ACCESS_TOKEN_EXPIRY=15m`, and `REFRESH_TOKEN_EXPIRY=7d`, or remove those variables to use the defaults. This validation also runs inside the hosted API function, even though Vercel manages its HTTP listener.
 
 ### Password recovery
 
@@ -245,7 +247,7 @@ Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
 
 - Production builds for the API and frontend, frontend lint, and formatting checks passed. Next.js 16.3.6 and Prisma 6.19.3 are used; the production dependency audit reports no known vulnerabilities.
 - The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
-- `pnpm test`: 90 passed (79 backend, 9 Next/Express bridge, 2 migration guards); the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, and rejection of untrusted origins.
+- `pnpm test`: 106 passed (79 backend, 12 Next/Express bridge, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, rejection of untrusted origins, and safe API startup diagnostics.
 - `pnpm test:integration`: all 9 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, password recovery, and database row-level security against PostgreSQL.
 - Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
 - At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.
@@ -254,18 +256,36 @@ Verification used disposable test accounts and workspaces. Existing account data
 
 ## Production and current boundaries
 
-The [Vercel deployment guide](docs/DEPLOYMENT.md) explains how to host both apps in one Vercel project, with a separate Supabase PostgreSQL database. Use Vercel Hobby and Supabase Free for a personal, non-commercial demo. Account setup, database creation, and GitHub authorization are required before it can go live.
+The app is deployed at [DevFlow AI](https://devflow-ai-web-ten.vercel.app). One Vercel project serves the frontend and backend; Supabase hosts PostgreSQL. The [Vercel deployment guide](docs/DEPLOYMENT.md) explains the configuration and how to deploy updates. The demo uses Vercel Hobby and Supabase Free for personal, non-commercial use.
 
-The Next.js API route delegates to the existing Express backend. The browser uses `/api` on the same HTTPS origin, so cookies work without a separate API domain. `pnpm build:vercel` generates Prisma, compiles the backend, applies migrations only for Vercel Production builds, and builds Next.js. `apps/web/vercel.json` sets the deployment commands; choose `apps/web` as the Vercel Root Directory and include files outside that directory.
+The Next.js API route delegates to the existing Express backend. The browser uses `/api` on the same HTTPS origin, so cookies work without a separate API domain. `pnpm build:vercel` generates Prisma, compiles the backend, validates API configuration before applying migrations in Vercel Production builds, and builds Next.js. Invalid configuration stops the production build before migrations. `apps/web/vercel.json` sets the deployment commands; choose `apps/web` as the Vercel Root Directory and include files outside that directory.
 
-`DATABASE_URL` uses a pooled database connection; `DIRECT_URL` is reserved for production migrations. Production and preview databases/secrets should be separate. Recovery email and paid AI providers remain optional configuration. See the guide for variables, validation, limits, updates, and rollback.
-The repository is prepared for deployment; a live service still requires the account and database setup above. Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; Vercel can create multiple function instances, so use a shared limiter before broader public use. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
+The existing Vercel project tracks `codex/deploy-vercel`. Create each production deployment from that branch's latest commit and confirm the source commit in Vercel. Redeploying an older `main` deployment rebuilds that older commit and misses the deployment fixes.
+
+`DATABASE_URL` uses a pooled database connection. For production migrations, an explicit `DIRECT_URL` takes priority. When it is missing or empty, the build can derive Supabase's session connection only from a shared `*.pooler.supabase.com:6543` transaction URL, changing the port to `5432` while preserving credentials, database, and TLS settings. Other providers require `DIRECT_URL`; malformed or whitespace-only overrides fail instead of falling back. Production and preview databases/secrets should be separate. Recovery email and paid AI providers remain optional configuration. See the guide for variables, validation, limits, updates, and rollback.
+Local accounts and development data were not copied to Supabase. If an account exists only on your machine, use Sign up on the live site. DevFlow keeps its own email/mobile login and session system, with Prisma connecting to Supabase PostgreSQL. The Supabase JavaScript/SSR quickstart is not needed for this configuration.
+
+Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; Vercel can create multiple function instances, so use a shared limiter before broader public use. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
+
+### Production verification (September 24, 2026)
+
+The deployment startup failure came from invalid Vercel values for `PORT`, both token lifetimes, and both JWT secrets. Production now uses port `5001`, access lifetime `15m`, refresh lifetime `7d`, and independently generated JWT secrets stored only in Vercel. The build validates these settings before running migrations.
+
+Live checks on the production domain passed:
+
+- Login page and compiled frontend assets: HTTP 200.
+- `/api/health` and `/api/health/ready`: HTTP 200, including a successful Supabase database query.
+- Synthetic email/mobile login attempts: HTTP 401 with the expected invalid-credentials response and no session cookies.
+- Invalid registration and malformed JSON: HTTP 400; protected routes without a session: HTTP 401; an untrusted browser origin: HTTP 403.
+
+These live checks created no accounts or application records. The authenticated workspace/task flows were verified locally as described above. Password recovery email and external AI provider delivery remain unconfigured for this demo.
 
 ### Troubleshooting
 
 - **Node version error:** run `nvm use` (Node 22).
 - **Database unreachable:** confirm the URL/port (Compose 5433; existing installations often 5432).
 - **Missing models/tables:** run `pnpm db:generate` and `pnpm db:migrate`.
+- **Hosted API returns 500:** inspect Vercel runtime logs for `DevFlow AI API failure.` and its stage. `environment-validation` includes only recognized configuration key names; check those variables, including blank optional values and JWT secrets shorter than 32 characters. The other stages distinguish configuration-module loading, application-module loading, and request handling. Logs omit configuration values, raw errors, stacks, and request data. See the [deployment troubleshooting guide](docs/DEPLOYMENT.md#updates-and-troubleshooting).
 - **Unexpected logout/CORS error:** use a consistent hostname and check `NEXT_PUBLIC_API_URL`. The browser's exact origin (scheme, hostname, and port) must match `WEB_URL` or an explicit `CORS_ORIGINS` entry. Restart the API after changing these values. A CORS allowlist does not make cookies work across unrelated sites.
 - **Missing local reset email:** check `apps/server/.local/mail/`; the email must be registered.
 - **AI provider unavailable:** verify key/model access, or use `AI_MODE=local`.
