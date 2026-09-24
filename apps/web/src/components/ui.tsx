@@ -2,8 +2,19 @@
 import styles from "./ui.module.css";
 import { cx } from "../lib/class-names";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { api, errorText } from "../lib/api";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { api, ApiError, errorText } from "../lib/api";
+
+export const SessionExpiredContext = createContext<(() => void) | null>(null);
 
 export function Icon({
   name,
@@ -226,6 +237,36 @@ export function Loading({
     </div>
   );
 }
+export function ContentSkeleton({
+  label = "Loading your workspace…",
+  heading = true,
+}: {
+  label?: string;
+  heading?: boolean;
+}) {
+  return (
+    <div className={styles["content-skeleton"]} role="status" aria-busy="true">
+      <span className={styles["sr-only"]}>{label}</span>
+      <div aria-hidden="true">
+        {heading && (
+          <div className={styles["skeleton-heading"]}>
+            <span />
+            <span />
+          </div>
+        )}
+        <div className={styles["skeleton-grid"]}>
+          {[0, 1, 2].map((item) => (
+            <div className={styles["skeleton-card"]} key={item}>
+              <span />
+              <span />
+              <span />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 export function Empty({
   icon = "folder",
   title,
@@ -350,33 +391,42 @@ export function Modal({
   );
 }
 export function useResource<T>(path: string | null) {
+  const onSessionExpired = useContext(SessionExpiredContext);
   const [revision, setRevision] = useState(0);
+  // A new request identity prevents a previous visit's error/loading state from
+  // flashing when a resource changes from A to B and back to A.
+  const request = useMemo(() => ({ path, revision }), [path, revision]);
   const [state, setState] = useState<{
-    path: string | null;
-    key: string;
+    request?: typeof request;
     data?: T;
     error?: string;
-  }>({ path: null, key: "" });
-  const key = `${path}:${revision}`;
+  }>({});
   useEffect(() => {
-    if (!path) return;
-    let active = true;
-    api<T>(path)
+    const controller = new AbortController();
+    if (!path) {
+      queueMicrotask(() => {
+        if (!controller.signal.aborted) setState({});
+      });
+      return () => controller.abort();
+    }
+    api<T>(path, { signal: controller.signal })
       .then((data) => {
-        if (active) setState({ path, key, data });
+        if (!controller.signal.aborted) setState({ request, data });
       })
       .catch((error) => {
-        if (active) setState({ path, key, error: errorText(error) });
+        if (controller.signal.aborted) return;
+        if (error instanceof ApiError && error.status === 401)
+          onSessionExpired?.();
+        setState({ request, error: errorText(error) });
       });
-    return () => {
-      active = false;
-    };
-  }, [path, key]);
+    return () => controller.abort();
+  }, [path, request, onSessionExpired]);
+  const refresh = useCallback(() => setRevision((value) => value + 1), []);
   return {
-    data: state.path === path ? state.data : undefined,
-    error: state.key === key ? state.error : undefined,
-    loading: !!path && state.key !== key,
-    refresh: () => setRevision((value) => value + 1),
+    data: path && state.request?.path === path ? state.data : undefined,
+    error: state.request === request ? state.error : undefined,
+    loading: !!path && state.request !== request,
+    refresh,
   };
 }
 export function dateLabel(value?: string | null) {

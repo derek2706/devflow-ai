@@ -4,17 +4,19 @@ import { cx } from "../lib/class-names";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorText, listOf, post } from "../lib/api";
 import { Project, User, Workspace } from "../lib/types";
 import { Auth } from "./auth";
 import {
   Avatar,
+  ContentSkeleton,
   Empty,
   ErrorBanner,
   Icon,
   Loading,
   Logo,
+  SessionExpiredContext,
   useResource,
 } from "./ui";
 import { WorkspaceEditor } from "./editors";
@@ -31,65 +33,61 @@ export function DevFlow() {
     "/forgot-password",
     "/reset-password",
   ].includes(pathname);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>();
   const [authError, setAuthError] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const [activeWorkspace, setActiveWorkspace] = useState("");
-  const [menu, setMenu] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const workspacesResource = useResource<{ workspaces: Workspace[] }>(
-    user ? "/workspaces" : null,
-  );
-  const workspaces = listOf<Workspace>(workspacesResource.data, "workspaces");
-  const workspaceId = pathname.startsWith("/workspaces/")
-    ? pathname.split("/")[2]
-    : workspaces.find((workspace) => workspace.id === activeWorkspace)?.id ||
-      workspaces[0]?.id;
-  const currentWorkspace = workspaces.find((w) => w.id === workspaceId);
-  const projectResource = useResource<{ projects: Project[] }>(
-    user && workspaceId ? `/workspaces/${workspaceId}/projects` : null,
-  );
-  const sidebarProjects = listOf<Project>(projectResource.data, "projects");
+  const clearSession = useCallback(() => {
+    setUser(null);
+    setAuthError("");
+  }, []);
+  const signIn = useCallback((nextUser: User) => {
+    setUser(nextUser);
+    setAuthError("");
+  }, []);
   useEffect(() => {
-    if (isPublic || user) return;
-    let active = true;
-    api<{ user: User }>("/auth/me")
+    if (isPublic || user !== undefined) return;
+    const controller = new AbortController();
+    api<{ user: User }>("/auth/me", { signal: controller.signal })
       .then((data) => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setUser(data.user);
           setAuthError("");
         }
       })
       .catch((error) => {
-        if (!active) return;
+        if (controller.signal.aborted) return;
         if (error instanceof ApiError && error.status === 401) {
-          const next =
-            pathname === "/invite"
-              ? `?next=${encodeURIComponent(pathname + window.location.search)}`
-              : "";
-          router.replace(`/login${next}`);
+          clearSession();
         } else setAuthError(errorText(error));
       });
-    return () => {
-      active = false;
-    };
-  }, [isPublic, user, pathname, router, attempt]);
+    return () => controller.abort();
+  }, [isPublic, user, attempt, clearSession]);
+  useEffect(() => {
+    if (isPublic || user !== null) return;
+    const next =
+      pathname === "/invite"
+        ? `?next=${encodeURIComponent(pathname + window.location.search)}`
+        : "";
+    router.replace(`/login${next}`);
+  }, [isPublic, user, pathname, router]);
   async function logout() {
     try {
       await post("/auth/logout");
-      setUser(null);
-      router.push("/login");
+      clearSession();
+      router.replace("/login");
     } catch (error) {
       setAuthError(errorText(error));
     }
   }
-  function refresh() {
-    workspacesResource.refresh();
-    projectResource.refresh();
-  }
-  if (isPublic)
-    return <Auth key={pathname} path={pathname} onLogin={setUser} />;
-  if (!user)
+  if (isPublic || user === null)
+    return (
+      <Auth
+        key={pathname}
+        path={isPublic ? pathname : "/login"}
+        onLogin={signIn}
+      />
+    );
+  if (user === undefined)
     return (
       <main className={styles["boot"]}>
         <Logo />
@@ -102,7 +100,10 @@ export function DevFlow() {
                 styles["button"],
                 styles["primary"],
               )}
-              onClick={() => setAttempt((value) => value + 1)}
+              onClick={() => {
+                setAuthError("");
+                setAttempt((value) => value + 1);
+              }}
             >
               Try again
             </button>
@@ -115,6 +116,104 @@ export function DevFlow() {
         )}
       </main>
     );
+  return (
+    <SessionExpiredContext.Provider value={clearSession}>
+      <AuthenticatedApp
+        key={user.id}
+        user={user}
+        authError={authError}
+        onLogout={logout}
+      />
+    </SessionExpiredContext.Provider>
+  );
+}
+
+function AuthenticatedApp({
+  user,
+  authError,
+  onLogout,
+}: {
+  user: User;
+  authError: string;
+  onLogout: () => Promise<void>;
+}) {
+  const pathname = usePathname() ?? "/";
+  const router = useRouter();
+  const main = useRef<HTMLElement>(null);
+  const [previousPath, setPreviousPath] = useState(pathname);
+  const [activeWorkspace, setActiveWorkspace] = useState(() =>
+    pathname.startsWith("/workspaces/") ? pathname.split("/")[2] : "",
+  );
+  const [projectLocation, setProjectLocation] =
+    useState<Pick<Project, "id" | "workspaceId">>();
+  const [menu, setMenu] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const workspacesResource = useResource<{ workspaces: Workspace[] }>(
+    "/workspaces",
+  );
+  const workspaces = listOf<Workspace>(workspacesResource.data, "workspaces");
+  const projectId = pathname.startsWith("/projects/")
+    ? pathname.split("/")[2]
+    : undefined;
+  const routedWorkspaceId = pathname.startsWith("/workspaces/")
+    ? pathname.split("/")[2]
+    : undefined;
+  // Remember the route's workspace and close navigation/dialogs before painting
+  // a new page. This avoids an effect-driven render with the previous selection.
+  if (previousPath !== pathname) {
+    setPreviousPath(pathname);
+    if (routedWorkspaceId) setActiveWorkspace(routedWorkspaceId);
+    setMenu(false);
+    setCreating(false);
+  }
+  const workspaceId =
+    routedWorkspaceId ||
+    (projectId
+      ? projectLocation?.id === projectId
+        ? projectLocation.workspaceId
+        : undefined
+      : workspaces.find((workspace) => workspace.id === activeWorkspace)?.id ||
+        workspaces[0]?.id);
+  const openingProject = !!projectId && projectLocation?.id !== projectId;
+  const currentWorkspace = workspaces.find(
+    (workspace) => workspace.id === workspaceId,
+  );
+  const projectResource = useResource<{ projects: Project[] }>(
+    workspaceId ? `/workspaces/${workspaceId}/projects` : null,
+  );
+  const sidebarProjects = listOf<Project>(projectResource.data, "projects");
+  const rememberProject = useCallback(
+    (project: Pick<Project, "id" | "workspaceId">) => {
+      setProjectLocation((previous) =>
+        previous?.id === project.id &&
+        previous.workspaceId === project.workspaceId
+          ? previous
+          : { id: project.id, workspaceId: project.workspaceId },
+      );
+      setActiveWorkspace(project.workspaceId);
+    },
+    [],
+  );
+  const resolveProjectWorkspace = useCallback(
+    (id: string | null) => {
+      if (!projectId) return;
+      if (id) rememberProject({ id: projectId, workspaceId: id });
+      else
+        setProjectLocation((previous) =>
+          previous?.id === projectId
+            ? previous
+            : { id: projectId, workspaceId: "" },
+        );
+    },
+    [projectId, rememberProject],
+  );
+  useEffect(() => {
+    main.current?.focus({ preventScroll: true });
+  }, [pathname]);
+  function refresh() {
+    workspacesResource.refresh();
+    projectResource.refresh();
+  }
   return (
     <div className={styles["app-shell"]}>
       <a className={cx(styles["native-a"], styles["skip-link"])} href="#main">
@@ -169,7 +268,11 @@ export function DevFlow() {
               setMenu(false);
             }}
           >
-            {!workspaces.length && <option value="">Your workspaces</option>}
+            {!workspaceId && (
+              <option value="">
+                {openingProject ? "Opening project…" : "Select workspace"}
+              </option>
+            )}
             {workspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>
                 {workspace.name}
@@ -219,7 +322,13 @@ export function DevFlow() {
               <Icon name="plus" size={16} />
             </Link>
           </div>
-          {sidebarProjects.length ? (
+          {(projectResource.loading && !projectResource.data) ||
+          openingProject ? (
+            <Loading
+              label="Loading projects…"
+              className={styles["sidebar-loading"]}
+            />
+          ) : sidebarProjects.length ? (
             sidebarProjects.map((project) => (
               <Link
                 className={cx(
@@ -232,6 +341,7 @@ export function DevFlow() {
                 )}
                 key={project.id}
                 href={`/projects/${project.id}`}
+                onNavigate={() => rememberProject(project)}
                 onClick={() => setMenu(false)}
               >
                 <span
@@ -243,7 +353,10 @@ export function DevFlow() {
             ))
           ) : (
             <p className={cx(styles["native-p"], styles["sidebar-empty"])}>
-              Your projects will live here.
+              {projectResource.error ||
+                (projectId && !workspaceId
+                  ? "Select a workspace to browse your projects."
+                  : "Your projects will live here.")}
             </p>
           )}
           <button
@@ -278,7 +391,7 @@ export function DevFlow() {
             </div>
             <button
               className={cx(styles["native-button"], styles["icon-button"])}
-              onClick={logout}
+              onClick={onLogout}
               title="Sign out"
               aria-label="Sign out"
             >
@@ -324,22 +437,35 @@ export function DevFlow() {
             className={styles["topbarAvatar"]}
           />
         </header>
-        <main id="main" className={styles["main-content"]}>
+        <main
+          id="main"
+          ref={main}
+          tabIndex={-1}
+          className={styles["main-content"]}
+        >
           <ErrorBanner error={authError || workspacesResource.error} />
           {pathname === "/" || pathname === "/dashboard" ? (
-            <Dashboard
-              user={user}
-              workspace={currentWorkspace}
-              workspaces={workspaces}
-              onCreateWorkspace={() => setCreating(true)}
-              onChange={refresh}
-            />
+            workspacesResource.loading && !workspacesResource.data ? (
+              <ContentSkeleton label="Loading your overview…" />
+            ) : (
+              <Dashboard
+                key={workspaceId || "all"}
+                user={user}
+                workspace={currentWorkspace}
+                workspaces={workspaces}
+                onCreateWorkspace={() => setCreating(true)}
+                onChange={refresh}
+                onProjectNavigate={rememberProject}
+              />
+            )
           ) : pathname.startsWith("/workspaces/") ? (
             <WorkspaceView
               key={workspaceId}
-              id={workspaceId}
+              id={routedWorkspaceId!}
               user={user}
               onChange={refresh}
+              projectsResource={projectResource}
+              onProjectNavigate={rememberProject}
             />
           ) : pathname.startsWith("/projects/") ? (
             <ProjectView
@@ -347,7 +473,7 @@ export function DevFlow() {
               id={pathname.split("/")[2]}
               user={user}
               workspaces={workspaces}
-              onWorkspace={setActiveWorkspace}
+              onWorkspace={resolveProjectWorkspace}
               onChange={refresh}
             />
           ) : pathname === "/invite" ? (

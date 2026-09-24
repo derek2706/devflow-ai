@@ -8,10 +8,10 @@ import { errorText, itemOf, listOf, patch, post, remove } from "../lib/api";
 import { Member, Project, User, Workspace } from "../lib/types";
 import {
   Avatar,
+  ContentSkeleton,
   Empty,
   ErrorBanner,
   Icon,
-  Loading,
   Modal,
   SuccessBanner,
   useResource,
@@ -23,16 +23,17 @@ export function WorkspaceView({
   id,
   user,
   onChange,
+  projectsResource,
+  onProjectNavigate,
 }: {
   id: string;
   user: User;
   onChange: () => void;
+  projectsResource: ReturnType<typeof useResource<{ projects: Project[] }>>;
+  onProjectNavigate: (project: Pick<Project, "id" | "workspaceId">) => void;
 }) {
   const router = useRouter();
   const resource = useResource<{ workspace: Workspace }>(`/workspaces/${id}`);
-  const projectsResource = useResource<{ projects: Project[] }>(
-    `/workspaces/${id}/projects`,
-  );
   const workspace = resource.data
     ? itemOf<Workspace>(resource.data, "workspace")
     : undefined;
@@ -92,7 +93,7 @@ export function WorkspaceView({
     return (
       <>
         <ErrorBanner error={resource.error} />
-        {resource.loading && <Loading />}
+        {resource.loading && <ContentSkeleton />}
       </>
     );
   return (
@@ -189,7 +190,7 @@ export function WorkspaceView({
             </label>
           </div>
           {projectsResource.loading && !projectsResource.data ? (
-            <Loading />
+            <ContentSkeleton label="Loading projects…" heading={false} />
           ) : projects.length ? (
             <div
               className={cx(
@@ -206,6 +207,7 @@ export function WorkspaceView({
                     key={project.id}
                     project={project}
                     className={styles.workspaceProjectCard}
+                    onNavigate={onProjectNavigate}
                   />
                 ))}
               {!search && (
@@ -400,6 +402,7 @@ export function WorkspaceView({
           onSave={(project) => {
             setCreateProject(false);
             onChange();
+            onProjectNavigate(project);
             router.push(`/projects/${project.id}`);
           }}
         />
