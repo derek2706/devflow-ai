@@ -9,6 +9,7 @@ import projectsRoutes from "./modules/projects/projects.routes";
 import tasksRoutes from "./modules/tasks/tasks.routes";
 import dashboardRoutes from "./modules/dashboard/dashboard.routes";
 import aiRoutes from "./modules/ai/ai.routes";
+import { checkDatabaseReadiness } from "./modules/health/health.service";
 import { requireAuth } from "./middlewares/requireAuth";
 import {
   rateLimit,
@@ -22,6 +23,8 @@ import { errorHandler } from "./shared/errors/errorHandler";
 const app = express();
 
 app.disable("x-powered-by");
+// Do not let caller-controlled forwarding chains affect req.ip.
+app.set("trust proxy", false);
 app.use(securityHeaders);
 app.use(
   pinoHttp({
@@ -48,10 +51,18 @@ app.use(verifyOrigin);
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
-app.get("/health", (_req, res) => {
+app.get(["/health", "/api/health"], (_req, res) => {
   res.json({
     success: true,
     message: "DevFlow AI Backend Running",
+  });
+});
+
+app.get(["/health/ready", "/api/health/ready"], async (_req, res) => {
+  const ready = await checkDatabaseReadiness();
+  res.status(ready ? HTTP_STATUS.OK : HTTP_STATUS.SERVICE_UNAVAILABLE).json({
+    success: ready,
+    message: ready ? "DevFlow AI Backend Ready" : "Database is unavailable",
   });
 });
 

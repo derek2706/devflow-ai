@@ -23,7 +23,7 @@ import { WorkspaceView } from "./workspace";
 import { ProjectView } from "./project";
 
 export function DevFlow() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "/";
   const router = useRouter();
   const isPublic = [
     "/login",

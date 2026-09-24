@@ -1,6 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+overrides:
+  # Patched transitive dependencies; Prisma 6 still pins deepmerge-ts 7.
+  "@prisma/config@6.19.3>deepmerge-ts": "8.0.0"
+  "express>qs": "^6.16.0"
 allowBuilds:
   "@prisma/client": false
   "@prisma/engines": false

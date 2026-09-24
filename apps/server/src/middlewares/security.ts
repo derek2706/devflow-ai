@@ -1,4 +1,5 @@
-import type { RequestHandler } from "express";
+import { isIP } from "node:net";
+import type { Request, RequestHandler } from "express";
 import { isAllowedOrigin } from "../config/origins";
 import { ApiError } from "../shared/errors/ApiError";
 import { HTTP_STATUS } from "../shared/constants/http-status";
@@ -24,10 +25,26 @@ export const verifyOrigin: RequestHandler = (req, _res, next) => {
   next();
 };
 
+export function rateLimitClientIp(req: Request) {
+  // Startup validates this opt-in. Avoid parsing the entire environment per request.
+  // Use Vercel's client-IP header only on its runtime; never trust caller XFF.
+  const trustVercelIngress =
+    process.env.TRUST_VERCEL_PROXY === "true" &&
+    process.env.VERCEL === "1" &&
+    process.env.NODE_ENV === "production";
+  const forwarded = req.headers["x-vercel-forwarded-for"];
+  if (trustVercelIngress && typeof forwarded === "string" && isIP(forwarded)) {
+    return forwarded;
+  }
+  return req.ip ?? "unknown";
+}
+
 export function rateLimit(max: number, windowMs: number): RequestHandler {
   const clients = new Map<string, { count: number; expires: number }>();
   return (req, res, next) => {
-    const key = req.auth?.userId ?? req.ip ?? "unknown";
+    const key = req.auth?.userId
+      ? `user:${req.auth.userId}`
+      : `ip:${rateLimitClientIp(req)}`;
     const now = Date.now();
     let entry = clients.get(key);
     if (!entry || entry.expires <= now) {
