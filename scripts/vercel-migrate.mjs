@@ -1,6 +1,69 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
+
+function postgresConnection(value) {
+  if (typeof value !== "string" || /[\u0000-\u0020\u007f]/.test(value)) {
+    throw new Error();
+  }
+  const url = new URL(value);
+  if (
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    !url.hostname ||
+    url.hash
+  ) {
+    throw new Error();
+  }
+  // URL accepts malformed percent escapes, but database credentials must not.
+  for (const part of [url.username, url.password, url.pathname, url.search]) {
+    decodeURIComponent(part);
+  }
+  return url;
+}
+
+function supabaseSessionConnection(value) {
+  const url = postgresConnection(value);
+  const sharedPooler =
+    /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+pooler\.supabase\.com$/i;
+  if (
+    !sharedPooler.test(url.hostname) ||
+    url.hostname.length > 253 ||
+    url.port !== "6543" ||
+    !url.username ||
+    !url.password ||
+    !/^\/[^/]+$/.test(url.pathname)
+  ) {
+    throw new Error();
+  }
+  // Do not derive a connection whose query string could select another endpoint.
+  const endpointOptions = new Set([
+    "host",
+    "hostaddr",
+    "port",
+    "user",
+    "password",
+    "dbname",
+  ]);
+  if (
+    [...url.searchParams.keys()].some((key) =>
+      endpointOptions.has(key.toLowerCase()),
+    ) ||
+    url.searchParams
+      .getAll("pgbouncer")
+      .some((mode) => !["true", "false"].includes(mode)) ||
+    url.searchParams.getAll("pgbouncer").length > 1
+  ) {
+    throw new Error();
+  }
+  // Supabase's shared session/transaction strings differ only by this port.
+  // Preserve credentials, database, TLS, schema and connection timeouts.
+  url.port = "5432";
+  for (const option of ["pgbouncer", "connection_limit", "pool_timeout"]) {
+    url.searchParams.delete(option);
+  }
+  return url.toString();
+}
 
 export function productionMigrationUrl(environment) {
   // Preview builds must never migrate the production database.
@@ -9,16 +72,30 @@ export function productionMigrationUrl(environment) {
   }
   const value = environment.DIRECT_URL;
   try {
-    const url = new URL(value);
-    if (!["postgres:", "postgresql:"].includes(url.protocol) || !url.hostname) {
-      throw new Error();
+    // Only missing/empty values use the fallback. An invalid explicit override
+    // must fail rather than silently migrating a different database.
+    if (value !== undefined && value !== "") {
+      postgresConnection(value);
+      return value;
     }
+    return supabaseSessionConnection(environment.DATABASE_URL);
   } catch {
     throw new Error(
-      "Set DIRECT_URL to the direct PostgreSQL connection in Vercel's Production environment.",
+      "Set DIRECT_URL to a PostgreSQL migration connection, or DATABASE_URL to a Supabase shared transaction pooler URL on port 6543, in Vercel's Production environment.",
     );
   }
-  return value;
+}
+
+export function migrationFailureMessage(result) {
+  const output = stripVTControlCharacters(
+    `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
+  );
+  // Emit only a documented Prisma connection/schema-engine code, never its
+  // accompanying message, which can contain credentials or database details.
+  const code = output.match(
+    /(?:^|\n)\s*(?:Error|Error code):\s*(P(?:100[0-3]|100[89]|101[0-7]|30[01]\d))\b/,
+  )?.[1];
+  return `Production migrations failed${code ? ` (${code})` : ""}. Check the migration connection (DIRECT_URL or Supabase DATABASE_URL), database availability, and migration history before redeploying.`;
 }
 
 export function migrate(environment = process.env) {
@@ -43,9 +120,7 @@ export function migrate(environment = process.env) {
     },
   );
   if (result.error || result.status !== 0) {
-    throw new Error(
-      "Production migrations failed. Check DIRECT_URL, database availability, and migration history before redeploying.",
-    );
+    throw new Error(migrationFailureMessage(result));
   }
   console.info("Production database migrations completed.");
 }

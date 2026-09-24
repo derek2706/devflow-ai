@@ -10,17 +10,18 @@ PostgreSQL runs on a database provider. Use **Vercel Hobby** and **Supabase Free
 2. Open your existing project in the [Supabase dashboard](https://supabase.com/dashboard). Use a dedicated DevFlow database/project so existing unrelated tables cannot conflict with the application's migrations. Keep the Free plan selected.
 3. Click **Connect** at the top of the project. Select **URI** as the connection format.
 4. Choose **Transaction pooler** for `DATABASE_URL` (normally port **6543**). Replace `[YOUR-PASSWORD]` with your database password, URL-encoding special characters. For Prisma 6, add `?pgbouncer=true&connection_limit=1&sslmode=require` if there is no query string; otherwise append the missing parameters with `&`.
-5. Choose **Session pooler** for `DIRECT_URL` (normally port **5432**). Use `sslmode=require` and omit `pgbouncer=true`. Despite this variable's name, the Supabase session pooler is the IPv4-compatible migration connection. The direct `db.<project-ref>.supabase.co` endpoint can require IPv6 and may not be reachable from Vercel without an IPv4 add-on; you do not need that paid add-on with the shared session pooler.
-6. Enter both full PostgreSQL URIs in Vercel's **Production** environment. These are database credentials, not a Supabase project URL, publishable/anon key, or service-role API key. Do not use `localhost` or commit the URLs.
+5. `DIRECT_URL` is optional for Supabase's shared transaction pooler. If missing or empty, the build derives its **Session pooler** connection by changing port **6543** to **5432**, preserving the host, credentials, database, and TLS settings, and removing `pgbouncer`, `connection_limit`, and `pool_timeout`. This works only for a valid `*.pooler.supabase.com:6543` URL. To override it, copy the **Session pooler** URI into `DIRECT_URL`, use `sslmode=require`, and omit `pgbouncer=true`. A malformed or whitespace-only override fails instead of using the fallback.
+6. Enter `DATABASE_URL` and, if you chose an override, `DIRECT_URL` in Vercel's **Production** environment. These are database credentials, not a Supabase project URL, publishable/anon key, or service-role API key. Do not use `localhost` or commit the URLs. Supabase's shared session pooler supports IPv4; its direct `db.<project-ref>.supabase.co` endpoint can require IPv6 or a paid IPv4 add-on.
 
 Supabase connection examples use placeholders only:
 
 ```text
 DATABASE_URL=postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require
+# Optional explicit migration override:
 DIRECT_URL=postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@POOLER_HOST:5432/postgres?sslmode=require
 ```
 
-Copy the actual host and user from **Connect** rather than inventing them. If you do not know the database password, use Supabase's database-password reset flow yourself, then update both Vercel variables. The app keeps its own accounts/sessions; it uses Supabase as PostgreSQL, not Supabase Auth.
+Copy the actual host and user from **Connect** rather than inventing them. If you do not know the database password, use Supabase's database-password reset flow yourself, then update `DATABASE_URL` and any explicit `DIRECT_URL`. The app keeps its own accounts/sessions; it uses Supabase as PostgreSQL, not Supabase Auth.
 
 The committed security migration enables row-level security with no public policies on DevFlow's tables and revokes public/Supabase anonymous access. Prisma connects as the table owner or a backend role with `BYPASSRLS`; the application enforces member permissions. Existing Supabase APIs for unrelated tables remain unchanged. Keep the database password and Supabase service-role key server-only. See [Supabase's Prisma guide](https://supabase.com/docs/guides/database/prisma) and [pooler connection guidance](https://supabase.com/docs/guides/database/connecting-to-postgres).
 
@@ -46,15 +47,15 @@ The monorepo setting matters because Next imports `apps/server/dist` and uses de
 
 Set these for **Production** before deploying:
 
-| Variable              | Value                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Supabase Transaction pooler URI (6543), TLS, `pgbouncer=true`, small connection limit |
-| `DIRECT_URL`          | Supabase Session pooler URI (5432), TLS, for migrations                               |
-| `JWT_ACCESS_SECRET`   | New random secret, at least 32 characters                                             |
-| `JWT_REFRESH_SECRET`  | Different random secret, at least 32 characters                                       |
-| `NEXT_PUBLIC_API_URL` | `/api`                                                                                |
-| `AI_MODE`             | `local`                                                                               |
-| `TRUST_VERCEL_PROXY`  | `true`                                                                                |
+| Variable              | Value                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Supabase Transaction pooler URI (6543), TLS, `pgbouncer=true`, small connection limit                               |
+| `DIRECT_URL`          | Optional Session pooler URI (5432) override; derived from a valid Supabase shared transaction URL when absent/empty |
+| `JWT_ACCESS_SECRET`   | New random secret, at least 32 characters                                                                           |
+| `JWT_REFRESH_SECRET`  | Different random secret, at least 32 characters                                                                     |
+| `NEXT_PUBLIC_API_URL` | `/api`                                                                                                              |
+| `AI_MODE`             | `local`                                                                                                             |
+| `TRUST_VERCEL_PROXY`  | `true`                                                                                                              |
 
 Preserve the existing JWT secrets when updating this deployment. For a fresh installation, generate each JWT secret separately in your terminal:
 
@@ -68,7 +69,7 @@ Only `NEXT_PUBLIC_API_URL` belongs in the browser. Never prefix database URLs, J
 
 ## Build and verification
 
-The build generates Prisma, compiles Express, applies committed migrations **only in a Vercel Production build** using `DIRECT_URL`, then builds Next.js with its API function. Migrations use `prisma migrate deploy` and never reset the database. They run during build, not during API requests. Migration failure stops deployment. A later build failure can leave migrations applied, so schema changes must remain compatible with the previous app release.
+The build generates Prisma, compiles Express, applies committed migrations **only in a Vercel Production build** using an explicit `DIRECT_URL` or the Supabase shared-pooler fallback above, then builds Next.js with its API function. Other database providers and unsupported connection modes require an explicit migration URL. Migrations use `prisma migrate deploy` and never reset the database. They run during build, not during API requests. Migration failure stops deployment. A later build failure can leave migrations applied, so schema changes must remain compatible with the previous app release.
 
 Once Vercel reports Ready, open its assigned HTTPS URL and check:
 
@@ -112,7 +113,7 @@ Migrations are skipped for previews. Initialize that isolated database with `pnp
 Vercel's Git integration normally deploys updates to the production branch automatically. Use isolated previews before releasing changes. A Vercel rollback changes application code, not database migrations; only roll back to compatible code. Never run `prisma migrate reset` against the hosted database.
 
 - **Missing backend/Prisma module:** verify the root build command and inclusion of files outside `apps/web`.
-- **Migration failed:** check `DIRECT_URL`, TLS, database availability, and migration history. Build logs avoid raw database connection errors.
+- **Migration failed:** check any explicit `DIRECT_URL`, or the supported Supabase `DATABASE_URL` fallback, TLS, database availability, and migration history. Build logs include recognized Prisma error codes such as `P1000` (credentials), `P1001` (connection), `P3005` (nonempty schema), or `P3018` (migration failure), without raw database errors or URLs.
 - **Readiness 503:** check database variables and provider availability.
 - **Login 403 or loops:** use the canonical HTTPS domain, `/api`, and the correct environment's `WEB_URL`.
 - **Preview has no tables:** initialize its isolated database.
