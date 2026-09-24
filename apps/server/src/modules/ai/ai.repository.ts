@@ -36,7 +36,8 @@ class AiRepository {
         },
       },
       orderBy: { updatedAt: "desc" },
-      take: 200,
+      // One extra row identifies whether the authorized snapshot is partial.
+      take: 201,
       include: { column: true },
     });
   }

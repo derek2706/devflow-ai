@@ -70,6 +70,16 @@
   color: #c5a4dc;
   font-size: 11px;
 }
+.ai-notice {
+  color: #d1bae0;
+  background: #29202f;
+  border: 1px solid #594364;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .ai-start {
   display: flex;
   flex-direction: column;
