@@ -16,6 +16,12 @@ Even a readiness check that executes `SELECT 1` took about 316–381 ms inside t
 
 No shared cache of private responses or permissions is introduced. Supabase and Vercel remain on their existing free plans.
 
+## First production measurements after the change
+
+The September 25 release (`42913e9`) responds from `bom1::bom1`, confirming that both the edge and API function are in Mumbai. The same six-request probe gave a **readiness warm median of 88 ms**, down from 443 ms, and a health warm median of 69 ms, down from 130 ms. Five follow-up samples exclude each endpoint's first request. The first health request took 1,770 ms; cold starts and outliers still matter.
+
+Authenticated runtime logs also improved: project detail took 44 ms of server processing, workspace list requests took 16–33 ms, workspace detail took 29 ms, and dashboard requests took 78–180 ms. A project-list request took 279 ms, so the 200 ms target is not met by every request. These are a few observed requests, not a load test or percentile result. Server processing excludes browser/network/platform overhead. Post-release task writes and comment reads still need representative measurements before claiming comparable improvements for those endpoints.
+
 ## Measure a release
 
 Run a small read-only network/database probe:

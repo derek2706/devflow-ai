@@ -19,6 +19,8 @@ Email verification is intentionally deferred. Workspace invitations are copyable
 
 ### Latest updates
 
+The frontend is organized into feature folders with focused page controllers, typed presentation components, shared UI primitives, and separate data/session hooks. See the [frontend architecture and editing guide](apps/web/README.md#structure) for the folder map and where to make changes.
+
 API performance work places the function in Mumbai alongside Supabase, reduces session-query data, and removes unnecessary browser refetches. See [performance measurements and verification](docs/PERFORMANCE.md) for the 200 ms target and how to check a release.
 
 Navigation keeps the signed-in application shell mounted while you move between screens. The sidebar and header stay visible, and loading placeholders appear in the content being fetched. Signing in as a different user starts a fresh shell so the previous account's workspace state is not reused.
@@ -213,7 +215,7 @@ Browser → Route → Validation → Controller → Service → Repository → P
 
 Routes compose middleware. Zod checks input. Controllers translate service results into HTTP status codes and `ApiResponse`. Services make authentication, permission, and transaction decisions. Repositories accept `PrismaClientOrTransaction`, so methods work inside or outside transactions without importing a singleton. Shared authorization helpers centralize membership checks across features.
 
-Frontend styles use a CSS Module beside each component. Shared controls and layout primitives are composed explicitly from `apps/web/src/components/shared.module.css`; only document defaults and theme variables remain global. See the [frontend styling guide](apps/web/README.md#styling-safely) for where to make local changes without affecting other screens.
+Frontend styles use CSS Modules owned by each feature or shared UI component. Shared controls and layout primitives are composed explicitly from `apps/web/src/components/styles/shared.module.css`; only document defaults and theme variables remain global. See the [frontend styling guide](apps/web/README.md#styling-safely) for where to make local changes without affecting other screens.
 
 For example, moving a task checks project access and the destination column, rejects cross-project moves, then updates ordering transactionally. Per-project database row locks serialize concurrent board mutations. The controller only returns the result.
 
@@ -296,7 +298,7 @@ Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
 
 - Production builds for the API and frontend, frontend lint, and formatting checks passed. Next.js 16.3.6 and Prisma 6.19.3 are used; the production dependency audit reports no known vulnerabilities.
 - The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, dashboard queries with and without workspace filters, task/comment pagination, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
-- `pnpm test`: 148 passed (114 backend, 19 web API/bridge tests, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes 43 focused AI tests, session revocation and validation, concurrent token refresh, CORS, cookie, and startup diagnostics regressions.
+- `pnpm test`: 168 passed (114 backend, 39 web API/bridge/render tests, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes 43 focused AI tests, session revocation and validation, concurrent token refresh, CORS, cookie, and startup diagnostics regressions.
 - `pnpm test:integration`: all 9 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, password recovery, and database row-level security against PostgreSQL.
 - Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
 - At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.

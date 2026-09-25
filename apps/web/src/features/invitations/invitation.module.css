@@ -1,0 +1,55 @@
+.native-a {
+  composes: native-a from "../../components/styles/shared.module.css";
+}
+.native-button {
+  composes: native-button from "../../components/styles/shared.module.css";
+}
+.native-h1 {
+  composes: native-h1 from "../../components/styles/shared.module.css";
+}
+.native-p {
+  composes: native-p from "../../components/styles/shared.module.css";
+}
+.button {
+  composes: button from "../../components/styles/shared.module.css";
+}
+.primary {
+  composes: primary from "../../components/styles/shared.module.css";
+}
+.panel {
+  composes: panel from "../../components/styles/shared.module.css";
+}
+.eyebrow {
+  composes: eyebrow from "../../components/styles/shared.module.css";
+}
+.text-link {
+  composes: text-link from "../../components/styles/shared.module.css";
+}
+.empty-icon {
+  composes: empty-icon from "../../components/ui/ui.module.css";
+}
+.invite-panel {
+  max-width: 580px;
+  margin: 60px auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px;
+  gap: 22px;
+}
+.invite-panel p {
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .invite-panel {
+    padding: 30px 22px;
+    margin-top: 30px;
+  }
+  .invite-panel h1 {
+    font-size: 25px;
+  }
+  .invite-panel p {
+    font-size: 12px;
+  }
+}

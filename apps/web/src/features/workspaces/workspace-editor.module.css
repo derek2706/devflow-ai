@@ -1,0 +1,30 @@
+.button {
+  composes: button from "../../components/styles/shared.module.css";
+}
+.form-stack {
+  composes: form-stack from "../../components/styles/shared.module.css";
+}
+.modal-actions {
+  composes: modal-actions from "../../components/styles/shared.module.css";
+}
+.muted {
+  composes: muted from "../../components/styles/shared.module.css";
+}
+.native-button {
+  composes: native-button from "../../components/styles/shared.module.css";
+}
+.native-input {
+  composes: native-input from "../../components/styles/shared.module.css";
+}
+.native-label {
+  composes: native-label from "../../components/styles/shared.module.css";
+}
+.native-textarea {
+  composes: native-textarea from "../../components/styles/shared.module.css";
+}
+.primary {
+  composes: primary from "../../components/styles/shared.module.css";
+}
+.secondary {
+  composes: secondary from "../../components/styles/shared.module.css";
+}

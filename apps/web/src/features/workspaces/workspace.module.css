@@ -1,0 +1,182 @@
+.button {
+  composes: button from "../../components/styles/shared.module.css";
+}
+.button-row {
+  composes: button-row from "../../components/styles/shared.module.css";
+}
+.count {
+  composes: count from "../../components/styles/shared.module.css";
+}
+.danger {
+  composes: danger from "../../components/styles/shared.module.css";
+}
+.danger-button {
+  composes: danger-button from "../../components/styles/shared.module.css";
+}
+.eyebrow {
+  composes: eyebrow from "../../components/styles/shared.module.css";
+}
+.form-stack {
+  composes: form-stack from "../../components/styles/shared.module.css";
+}
+.helper {
+  composes: helper from "../../components/styles/shared.module.css";
+}
+.icon-button {
+  composes: icon-button from "../../components/styles/shared.module.css";
+}
+.member-list {
+  composes: member-list from "../../components/styles/shared.module.css";
+}
+.member-name {
+  composes: member-name from "../../components/styles/shared.module.css";
+}
+.member-row {
+  composes: member-row from "../../components/styles/shared.module.css";
+}
+.memberAvatar {
+  composes: memberAvatar from "../../components/styles/shared.module.css";
+}
+.modal-actions {
+  composes: modal-actions from "../../components/styles/shared.module.css";
+}
+.muted {
+  composes: muted from "../../components/styles/shared.module.css";
+}
+.native-button {
+  composes: native-button from "../../components/styles/shared.module.css";
+}
+.native-h1 {
+  composes: native-h1 from "../../components/styles/shared.module.css";
+}
+.native-h2 {
+  composes: native-h2 from "../../components/styles/shared.module.css";
+}
+.native-input {
+  composes: native-input from "../../components/styles/shared.module.css";
+}
+.native-label {
+  composes: native-label from "../../components/styles/shared.module.css";
+}
+.native-p {
+  composes: native-p from "../../components/styles/shared.module.css";
+}
+.native-select {
+  composes: native-select from "../../components/styles/shared.module.css";
+}
+.new-project-card {
+  composes: new-project-card from "../../components/styles/shared.module.css";
+}
+.page-heading {
+  composes: page-heading from "../../components/styles/shared.module.css";
+}
+.panel {
+  composes: panel from "../../components/styles/shared.module.css";
+}
+.panel-footer {
+  composes: panel-footer from "../../components/styles/shared.module.css";
+}
+.panel-heading {
+  composes: panel-heading from "../../components/styles/shared.module.css";
+}
+.primary {
+  composes: primary from "../../components/styles/shared.module.css";
+}
+.projects-grid {
+  composes: projects-grid from "../../components/styles/shared.module.css";
+}
+.search-field {
+  composes: search-field from "../../components/styles/shared.module.css";
+}
+.secondary {
+  composes: secondary from "../../components/styles/shared.module.css";
+}
+.section-heading {
+  composes: section-heading from "../../components/styles/shared.module.css";
+}
+.subtle-badge {
+  composes: subtle-badge from "../../components/styles/shared.module.css";
+}
+/* Shared primitives are composed explicitly; feature rules stay local. */
+.tabs {
+  display: flex;
+  gap: 25px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 26px;
+}
+.tabs button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 0 0 16px;
+  color: #8d8b9f;
+  font-size: 12px;
+}
+.tabs button.selected {
+  border-bottom-color: #a28ae8;
+  color: #cec0f6;
+}
+.workspace-projects {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.workspace-projects .workspaceProjectCard {
+  min-height: 212px;
+}
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.settings-row {
+  padding: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.settings-row h2 {
+  font-size: 15px;
+}
+.settings-row p {
+  font-size: 12px;
+  margin-top: 7px;
+  color: var(--muted);
+}
+.danger-zone {
+  border-color: #442831;
+}
+.danger-zone h2 {
+  color: #e7a0ad;
+}
+@media (max-width: 1200px) {
+  .workspace-projects {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .tabs {
+    gap: 23px;
+  }
+  .tabs button {
+    font-size: 11px;
+  }
+  .workspace-projects {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .settings-row {
+    padding: 20px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .settings-row .button {
+    align-self: flex-end;
+  }
+}
+@media (max-width: 400px) {
+  .workspace-projects {
+    grid-template-columns: 1fr;
+  }
+}
