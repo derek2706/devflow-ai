@@ -11,6 +11,7 @@ import { prisma } from "../src/lib/prisma";
 import { mailer, MailMessage } from "../src/lib/mail";
 import { authRoutes } from "../src/modules/auth";
 import authRepository from "../src/modules/auth/auth.repository";
+import { accessToken } from "../src/modules/auth/auth.tokens";
 import { errorHandler } from "../src/shared/errors/errorHandler";
 
 Object.assign(process.env, {
@@ -85,6 +86,20 @@ before(async () => {
     authRepository,
     "findSession",
     async (_db: any, id: string) => sessions.get(id) ?? null,
+  );
+  mock.method(
+    authRepository,
+    "findActiveSession",
+    async (_db: any, id: string, userId: string) => {
+      const session = sessions.get(id);
+      return session &&
+        session.userId === userId &&
+        !session.revokedAt &&
+        session.expiresAt > new Date() &&
+        users.get(userId)?.isActive
+        ? { id: session.id }
+        : null;
+    },
   );
   mock.method(
     authRepository,
@@ -383,6 +398,35 @@ test("me requires a valid active session", async () => {
   assert.equal(
     (await request("/me", undefined, signedIn.cookie)).response.status,
     401,
+  );
+});
+
+test("valid access tokens cannot use an expired or different user's session", async () => {
+  const signedIn = await login();
+  const session = [...sessions.values()][0];
+  const validExpiry = session.expiresAt;
+  session.expiresAt = new Date(0);
+  assert.equal(
+    (await request("/me", undefined, signedIn.cookie)).response.status,
+    401,
+  );
+  session.expiresAt = validExpiry;
+  const otherUserId = randomUUID();
+  users.set(otherUserId, {
+    id: otherUserId,
+    name: "Another active user",
+    avatar: null,
+    isActive: true,
+  });
+  const mismatched = accessToken(otherUserId, session.id);
+  assert.equal(
+    (await request("/me", undefined, `access_token=${mismatched}`)).response
+      .status,
+    401,
+  );
+  assert.equal(
+    (await request("/me", undefined, signedIn.cookie)).response.status,
+    200,
   );
 });
 

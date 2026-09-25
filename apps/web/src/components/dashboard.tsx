@@ -401,7 +401,6 @@ export function Dashboard({
           onSave={(project) => {
             setCreateProject(false);
             onChange();
-            resource.refresh();
             onProjectNavigate(project);
             router.push(`/projects/${project.id}`);
           }}

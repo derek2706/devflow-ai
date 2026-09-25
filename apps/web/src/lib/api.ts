@@ -9,12 +9,15 @@ export class ApiError extends Error {
   }
 }
 let refreshing: Promise<boolean> | null = null;
+let refreshGeneration = 0;
+let lastRefreshSucceeded = false;
 
 export async function api<T>(
   path: string,
   options: RequestInit = {},
   retry = true,
 ): Promise<T> {
+  const requestGeneration = refreshGeneration;
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -41,16 +44,28 @@ export async function api<T>(
       "/auth/logout",
     ].includes(path)
   ) {
-    refreshing ??= fetch(`${API_URL}/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-    })
-      .then((r) => r.ok)
-      .catch(() => false)
-      .finally(() => {
-        refreshing = null;
-      });
-    if (await refreshing) return api<T>(path, options, false);
+    // A slower response may still carry the old session's 401 after another
+    // request has finished refreshing. Reuse that outcome instead of rotating
+    // the cookies again (or repeating a refresh that already failed).
+    let refreshed = lastRefreshSucceeded;
+    if (requestGeneration === refreshGeneration) {
+      refreshing ??= fetch(`${API_URL}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      })
+        .then((r) => r.ok)
+        .catch(() => false)
+        .then((succeeded) => {
+          lastRefreshSucceeded = succeeded;
+          refreshGeneration += 1;
+          return succeeded;
+        })
+        .finally(() => {
+          refreshing = null;
+        });
+      refreshed = await refreshing;
+    }
+    if (refreshed) return api<T>(path, options, false);
   }
   const body = await response.json().catch(() => ({}));
   if (!response.ok)

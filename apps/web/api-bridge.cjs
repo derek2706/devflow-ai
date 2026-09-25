@@ -51,8 +51,9 @@ const configurationKeys = new Set([
   "MAIL_FROM",
   "MAIL_PREVIEW_DIR",
   "AI_MODE",
-  "OPENAI_API_KEY",
-  "OPENAI_MODEL",
+  "AI_PROVIDER",
+  "GROQ_API_KEY",
+  "GROQ_MODEL",
 ]);
 const moduleIdentifiers = new Set([
   "../server/dist/config/env.js",

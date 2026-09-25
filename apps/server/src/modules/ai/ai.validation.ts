@@ -34,7 +34,7 @@ export const sprintResult = z.object({
     .array(
       z.object({
         taskId: z.string(),
-        title: z.string().max(200),
+        title: z.string().max(240),
         reason: z.string().max(1000),
       }),
     )

@@ -12,10 +12,18 @@ A developer workspace for organizing projects, collaborating on Kanban boards, a
 | Projects       | Create/edit/delete, project membership, an individual Kanban board for each project                                             |
 | Kanban         | Custom columns, completed-column status, task drag and drop, explicit move controls, persistent ordering                        |
 | Tasks          | Title, description, due date, priority, labels, assignee, comments, status through board columns                                |
-| Planning       | Subtask suggestions, project summaries, sprint plans, personal standups; local planner or optional OpenAI provider              |
+| Planning       | Subtask suggestions, project summaries, sprint plans, personal standups; local planner or Groq Free                             |
 | Foundation     | Validated configuration, migrations, structured logs, request limits, origin checks, tests, production builds                   |
 
 Email verification is intentionally deferred. Workspace invitations are copyable links: the administrator shares the generated link. Password recovery uses the separate email integration described below.
+
+### Latest updates
+
+API performance work places the function in Mumbai alongside Supabase, reduces session-query data, and removes unnecessary browser refetches. See [performance measurements and verification](docs/PERFORMANCE.md) for the 200 ms target and how to check a release.
+
+Navigation keeps the signed-in application shell mounted while you move between screens. The sidebar and header stay visible, and loading placeholders appear in the content being fetched. Signing in as a different user starts a fresh shell so the previous account's workspace state is not reused.
+
+The four planning tools can use a real model through Groq Free. Each result identifies its engine. Quotas, timeouts, temporary service failures, and invalid drafts produce a local draft with an explanation. Credential and configuration problems remain errors. A separate notice identifies shortened AI context.
 
 ## Run locally
 
@@ -90,26 +98,28 @@ The integration suite creates uniquely named users/workspaces and removes only t
 
 Backend: `apps/server/.env`. Frontend: `apps/web/.env.local`. Examples are committed; real configuration and mail previews are ignored by Git.
 
-| Variable                          | Meaning                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------ |
-| `NODE_ENV`                        | `development`, `test`, or `production`                                                     |
-| `PORT`                            | Optional API port, default `5001`; omit or set a valid integer from 1 to 65535             |
-| `DATABASE_URL`                    | PostgreSQL connection string                                                               |
-| `WEB_URL`                         | Frontend origin and recovery link base, default `http://localhost:3000`                    |
-| `CORS_ORIGINS`                    | Optional comma-separated additional trusted HTTP(S) origins; no wildcards or URL paths     |
-| `JWT_ACCESS_SECRET`               | Signs short-lived access JWTs                                                              |
-| `JWT_REFRESH_SECRET`              | Independent secret hashing opaque refresh credentials                                      |
-| `ACCESS_TOKEN_EXPIRY`             | Default `15m`, positive duration up to one day                                             |
-| `REFRESH_TOKEN_EXPIRY`            | Default `7d`, positive duration up to 90 days                                              |
-| `API_COOKIE_SECURE`               | Optional secure cookies in development; production always uses Secure                      |
-| `AI_MODE`                         | `local` (default) or `provider`                                                            |
-| `OPENAI_API_KEY` / `OPENAI_MODEL` | Both required in provider mode; server-only                                                |
-| `RESEND_API_KEY` / `MAIL_FROM`    | Production recovery-email credentials and verified sender                                  |
-| `MAIL_PREVIEW_DIR`                | Optional local email directory override                                                    |
-| `NEXT_PUBLIC_API_URL`             | Browser API base, default `/api` (same origin)                                             |
-| `API_INTERNAL_URL`                | Local development rewrite target, default `http://127.0.0.1:5001`                          |
-| `TRUST_VERCEL_PROXY`              | Opt-in to Vercel's client-IP header; requires production mode and Vercel's platform flag   |
-| `DIRECT_URL`                      | Optional migration override; Supabase shared pooler URLs can derive the session connection |
+| Variable                       | Meaning                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `NODE_ENV`                     | `development`, `test`, or `production`                                                     |
+| `PORT`                         | Optional API port, default `5001`; omit or set a valid integer from 1 to 65535             |
+| `DATABASE_URL`                 | PostgreSQL connection string                                                               |
+| `WEB_URL`                      | Frontend origin and recovery link base, default `http://localhost:3000`                    |
+| `CORS_ORIGINS`                 | Optional comma-separated additional trusted HTTP(S) origins; no wildcards or URL paths     |
+| `JWT_ACCESS_SECRET`            | Signs short-lived access JWTs                                                              |
+| `JWT_REFRESH_SECRET`           | Independent secret hashing opaque refresh credentials                                      |
+| `ACCESS_TOKEN_EXPIRY`          | Default `15m`, positive duration up to one day                                             |
+| `REFRESH_TOKEN_EXPIRY`         | Default `7d`, positive duration up to 90 days                                              |
+| `API_COOKIE_SECURE`            | Optional secure cookies in development; production always uses Secure                      |
+| `AI_MODE`                      | `local` (default) or `provider`                                                            |
+| `AI_PROVIDER`                  | `groq` (default and only supported external provider)                                      |
+| `GROQ_API_KEY`                 | Private server-only key required for Groq                                                  |
+| `GROQ_MODEL`                   | Groq model ID; default `openai/gpt-oss-120b`                                               |
+| `RESEND_API_KEY` / `MAIL_FROM` | Production recovery-email credentials and verified sender                                  |
+| `MAIL_PREVIEW_DIR`             | Optional local email directory override                                                    |
+| `NEXT_PUBLIC_API_URL`          | Browser API base, default `/api` (same origin)                                             |
+| `API_INTERNAL_URL`             | Local development rewrite target, default `http://127.0.0.1:5001`                          |
+| `TRUST_VERCEL_PROXY`           | Opt-in to Vercel's client-IP header; requires production mode and Vercel's platform flag   |
+| `DIRECT_URL`                   | Optional migration override; Supabase shared pooler URLs can derive the session connection |
 
 `NEXT_PUBLIC_API_URL` is embedded in the frontend build; set it before building for deployment.
 
@@ -121,15 +131,52 @@ In development/tests, emails are saved as private JSON files in **`apps/server/.
 
 In production, configure `RESEND_API_KEY` and a verified `MAIL_FROM`. The mailer uses the [Resend email API](https://resend.com/docs/api-reference/emails/send-email). Failed delivery invalidates the token and logs a generic error. Known and unknown accounts receive the same HTTP response. Mobile-only accounts currently have no SMS recovery flow.
 
-### Local planner and AI provider
+### Use the planning tools
 
 The app works without an AI key. **Local mode is deterministic planning, not a language model**: it suggests acceptance/implementation/verification tasks, calculates project progress, prioritizes unfinished tasks by priority/due date, and assembles standups from your assigned tasks.
 
-For OpenAI, set `AI_MODE=provider`, provide a key and a model available to your account that supports Responses structured outputs, then restart the API. The implementation uses the [Responses API with structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), disables response storage, validates results with Zod, and times out after 30 seconds. Provider failures return a safe error rather than silently switching engines.
+To use the tools, create a project and a few tasks, then:
 
-Generation sends selected task/project context to OpenAI only when requested. It excludes credentials, member emails, and comments. Analysis considers at most 200 recently updated tasks; partial project summaries are labeled. Sprint capacity is a **task count**, not hours or story points. Standups use assigned tasks and update timestamps for recent completions. Suggestions are previews; adding suggested subtasks is a separate action that creates regular board tasks referencing the original task in their descriptions.
+- Open a saved task and choose **Generate subtasks**. Generate a draft, edit it, and add the suggestions as board tasks.
+- Open a project and choose **AI summary** to review progress, risks, and next steps.
+- Choose **Plan a sprint** on a project, enter an optional goal and task capacity, then generate a suggested plan.
+- Choose **Generate standup** on the dashboard to draft an update from tasks assigned to you.
 
-Provider responses/failures are tested through a mocked HTTP boundary. Live AI calls and real email delivery require your provider configuration and were not used for local verification.
+Suggestions are previews. Adding subtasks is a separate action that creates regular board tasks referencing the original task in their descriptions. Sprint capacity counts tasks, not hours or story points. Standups use assigned tasks and update timestamps for recent completions.
+
+### Enable real AI with Groq Free
+
+Create a private API key in the [Groq console](https://console.groq.com/keys), keeping the Free plan. Enter it as `GROQ_API_KEY` in Vercel's Production environment, or in `apps/server/.env` for local development. Do not commit it or put it in a browser variable. Set:
+
+```text
+AI_MODE=provider
+AI_PROVIDER=groq
+GROQ_MODEL=openai/gpt-oss-120b
+```
+
+Redeploy on Vercel or restart the local API. Groq's documented Free allowance for this model is 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute, and 200,000 tokens/day per organization. Whichever limit is reached first applies; large task snapshots can reach the token limit before the request count. See [current Groq limits](https://console.groq.com/docs/rate-limits), and check the exact allowance in your account. Keep the Free plan to preserve the $0 budget. Local mode needs no API key and is the default in the example environment.
+
+### What happens when you generate
+
+The integration uses native server-side `fetch` to the [Groq Responses API](https://console.groq.com/docs/responses-api), with a strict JSON schema and response storage disabled. It validates results with Zod and applies a 30-second timeout with a 3,000-token output cap. The model ID starts with `openai/` because OpenAI created the model; requests go to Groq. Schema validation is followed by application checks, such as ensuring sprint suggestions use unfinished tasks from the supplied project.
+
+Clicking Generate sends selected task/project context to Groq when provider mode is enabled. It excludes credentials, member emails, and comments. The authorized snapshot contains at most 200 recently updated tasks. External requests are further limited to 16,000 serialized JSON characters, with task descriptions capped at 500 characters and project descriptions at 1,000; the result displays a notice if this shortens the snapshot. A local fallback still uses the authorized snapshot.
+
+The result shows whether it came from AI or the local planner. Quota/rate limits, timeouts, temporary service failures, and invalid responses produce a labeled local draft, with the reason shown. Missing credentials, Groq authentication failures (HTTP 401/403), rejected model/request settings, and application authorization or database errors do not produce a fallback. Fix the reported configuration or application issue before retrying. There are no automatic retries or alternate-model requests.
+
+### Check which engine produced a draft
+
+Before generation, **AI via Groq** shows the configured engine. After a successful external generation, the result must show **Generated by Groq**. A local fallback shows **Local planning assistant** and explains why the AI attempt did not produce the draft.
+
+For an API check, inspect the generation response's `data` object:
+
+| Result                          | Fields to check                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Groq draft                      | `mode: "provider"`, `provider: "groq"`, the configured `model`, and no `fallbackReason`                                   |
+| Local draft after an AI attempt | `mode: "local"`, attempted provider/model, and `fallbackReason`: `quota`, `timeout`, `unavailable`, or `invalid_response` |
+| Local mode                      | `mode: "local"` without a fallback reason; no external request                                                            |
+
+`contextLimited: true` means the provider snapshot was shortened or the repository snapshot was already partial. The panel displays the shortened-context notice on a Groq result. Neither `/api/ai/status` reporting provider mode nor HTTP 200 alone proves that Groq produced a draft. Run `pnpm test` for mocked provider checks; follow the [deployment verification steps](docs/DEPLOYMENT.md#verify-generation-and-fallbacks) for live confirmation.
 
 ## Understand the code
 
@@ -249,12 +296,12 @@ Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
 
 - Production builds for the API and frontend, frontend lint, and formatting checks passed. Next.js 16.3.6 and Prisma 6.19.3 are used; the production dependency audit reports no known vulnerabilities.
 - The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, dashboard queries with and without workspace filters, task/comment pagination, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
-- `pnpm test`: 109 passed (79 backend, 15 Next/Express bridge, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes credentialed CORS preflights, error-response headers, additional configured origins, rejection of untrusted origins, and safe API startup diagnostics.
+- `pnpm test`: 148 passed (114 backend, 19 web API/bridge tests, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes 43 focused AI tests, session revocation and validation, concurrent token refresh, CORS, cookie, and startup diagnostics regressions.
 - `pnpm test:integration`: all 9 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, password recovery, and database row-level security against PostgreSQL.
 - Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
 - At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.
 
-Verification used disposable test accounts and workspaces. Existing account data was preserved. Provider responses and email delivery were mocked; live provider configuration remains a deployment step.
+Verification used disposable test accounts and workspaces. Existing account data was preserved. Provider responses and email delivery were mocked in these local checks; they do not verify a live AI request.
 
 ## Production and current boundaries
 
@@ -264,7 +311,7 @@ The Next.js API route delegates to the existing Express backend. The browser use
 
 The existing Vercel project tracks `codex/deploy-vercel`. Create each production deployment from that branch's latest commit and confirm the source commit in Vercel. Redeploying an older `main` deployment rebuilds that older commit and misses the deployment fixes.
 
-`DATABASE_URL` uses a pooled database connection. For production migrations, an explicit `DIRECT_URL` takes priority. When it is missing or empty, the build can derive Supabase's session connection only from a shared `*.pooler.supabase.com:6543` transaction URL, changing the port to `5432` while preserving credentials, database, and TLS settings. Other providers require `DIRECT_URL`; malformed or whitespace-only overrides fail instead of falling back. Production and preview databases/secrets should be separate. Recovery email and paid AI providers remain optional configuration. See the guide for variables, validation, limits, updates, and rollback.
+`DATABASE_URL` uses a pooled database connection. For production migrations, an explicit `DIRECT_URL` takes priority. When it is missing or empty, the build can derive Supabase's session connection only from a shared `*.pooler.supabase.com:6543` transaction URL, changing the port to `5432` while preserving credentials, database, and TLS settings. Other providers require `DIRECT_URL`; malformed or whitespace-only overrides fail instead of falling back. Production and preview databases/secrets should be separate. The deployment guide includes Groq Free configuration; recovery email remains optional. See the guide for variables, validation, limits, updates, and rollback.
 Local accounts and development data were not copied to Supabase. If an account exists only on your machine, use Sign up on the live site. DevFlow keeps its own email/mobile login and session system, with Prisma connecting to Supabase PostgreSQL. The Supabase JavaScript/SSR quickstart is not needed for this configuration.
 
 Current choices: one board per project, link-based invitations, email-only recovery, deferred verification/OAuth, no realtime push updates, attachments, or nested task hierarchy. Rate limits are per-process; Vercel can create multiple function instances, so use a shared limiter before broader public use. Configure backups, monitoring, TLS/proxies, and secret management for your deployment. The API does not trust forwarded IP headers by default.
@@ -280,7 +327,7 @@ Live checks on the production domain passed:
 - Synthetic email/mobile login attempts: HTTP 401 with the expected invalid-credentials response and no session cookies.
 - Invalid registration and malformed JSON: HTTP 400; protected routes without a session: HTTP 401; an untrusted browser origin: HTTP 403.
 
-These live checks created no accounts or application records. The authenticated workspace/task flows were verified locally as described above. Password recovery email and external AI provider delivery remain unconfigured for this demo.
+These live checks created no accounts or application records. The authenticated workspace/task flows were verified locally as described above. Password recovery email remains unconfigured. Verify AI generation separately using the result fields and labels described above; these health checks do not establish AI delivery.
 
 ### Troubleshooting
 
@@ -290,5 +337,6 @@ These live checks created no accounts or application records. The authenticated 
 - **Hosted API returns 500:** inspect Vercel runtime logs for `DevFlow AI API failure.` and its stage. `environment-validation` includes only recognized configuration key names; check those variables, including blank optional values and JWT secrets shorter than 32 characters. The other stages distinguish configuration-module loading, application-module loading, and request handling. Logs omit configuration values, raw errors, stacks, and request data. See the [deployment troubleshooting guide](docs/DEPLOYMENT.md#updates-and-troubleshooting).
 - **Unexpected logout/CORS error:** use a consistent hostname and check `NEXT_PUBLIC_API_URL`. The browser's exact origin (scheme, hostname, and port) must match `WEB_URL` or an explicit `CORS_ORIGINS` entry. Restart the API after changing these values. A CORS allowlist does not make cookies work across unrelated sites.
 - **Missing local reset email:** check `apps/server/.local/mail/`; the email must be registered.
-- **AI provider unavailable:** verify key/model access, or use `AI_MODE=local`.
+- **AI returns a local draft:** read the displayed reason. Wait before retrying a quota/rate-limit result; check your provider's allowance and runtime logs for persistent failures. The draft remains usable.
+- **AI configuration error:** confirm `AI_PROVIDER=groq`, the model ID, and the private `GROQ_API_KEY`. A Groq credential rejection returns a safe API error, not a local draft. Previous `OPENAI_API_KEY` / `OPENAI_MODEL` settings are ignored; replace an old `AI_PROVIDER` selection with `groq` or remove it to use the default. Redeploy/restart after configuration changes, or select `AI_MODE=local`.
 - **429 response:** respect the retry interval; authentication attempts are rate limited.

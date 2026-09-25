@@ -4,7 +4,7 @@ import { cx } from "../lib/class-names";
 
 import { FormEvent, useState } from "react";
 import { errorText, listOf, patch, post, remove } from "../lib/api";
-import { Comment, Project, Task, User } from "../lib/types";
+import { Comment, Project, Role, Task, User } from "../lib/types";
 import {
   Avatar,
   ErrorBanner,
@@ -21,6 +21,7 @@ export function TaskEditor({
   task,
   columnId,
   user,
+  workspaceRole,
   onClose,
   onChange,
 }: {
@@ -28,19 +29,14 @@ export function TaskEditor({
   task?: Task;
   columnId?: string;
   user: User;
-  onClose: () => void;
-  onChange: () => void;
+  workspaceRole?: Role;
+  onClose: (changed: boolean) => void;
+  onChange: (taskCountChanged: boolean) => void;
 }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [ai, setAi] = useState(false);
-  const workspaceResource = useResource<{
-    members: { userId: string; role: string }[];
-  }>(task ? `/workspaces/${project.workspaceId}/members` : null);
-  const ownRole = listOf<{ userId: string; role: string }>(
-    workspaceResource.data,
-    "members",
-  ).find((member) => member.userId === user.id)?.role;
+  const [changed, setChanged] = useState(false);
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -75,6 +71,8 @@ export function TaskEditor({
     try {
       if (task) {
         await patch(`/tasks/${task.id}`, body);
+        // Preserve a successful edit if a subsequent status move fails.
+        setChanged(true);
         if (task.columnId !== targetColumn)
           await patch(`/tasks/${task.id}/move`, {
             columnId: targetColumn,
@@ -87,7 +85,7 @@ export function TaskEditor({
           ...body,
           columnId: targetColumn,
         });
-      onChange();
+      onChange(!task);
     } catch (error) {
       setError(errorText(error));
       setBusy(false);
@@ -103,7 +101,7 @@ export function TaskEditor({
     setBusy(true);
     try {
       await remove(`/tasks/${task?.id}`);
-      onChange();
+      onChange(true);
     } catch (error) {
       setError(errorText(error));
       setBusy(false);
@@ -114,7 +112,7 @@ export function TaskEditor({
       <Modal
         title={task ? "Task details" : "A clear next step"}
         description={project.name}
-        onClose={onClose}
+        onClose={() => onClose(changed)}
         wide
       >
         <div className={styles["task-detail-layout"]}>
@@ -250,7 +248,7 @@ export function TaskEditor({
                     styles["button"],
                     styles["secondary"],
                   )}
-                  onClick={onClose}
+                  onClick={() => onClose(changed)}
                 >
                   Cancel
                 </button>
@@ -298,7 +296,10 @@ export function TaskEditor({
                 <Comments
                   taskId={task.id}
                   user={user}
-                  canModerate={ownRole === "OWNER" || ownRole === "ADMIN"}
+                  canModerate={
+                    workspaceRole === "OWNER" || workspaceRole === "ADMIN"
+                  }
+                  onChange={() => setChanged(true)}
                 />
               </>
             ) : (
@@ -325,7 +326,7 @@ export function TaskEditor({
           project={project}
           task={task}
           onClose={() => setAi(false)}
-          onApplied={onChange}
+          onApplied={() => onChange(true)}
         />
       )}
     </>
@@ -335,10 +336,12 @@ function Comments({
   taskId,
   user,
   canModerate,
+  onChange,
 }: {
   taskId: string;
   user: User;
   canModerate: boolean;
+  onChange: () => void;
 }) {
   const [page, setPage] = useState(0);
   const resource = useResource<{ comments: Comment[] }>(
@@ -353,6 +356,7 @@ function Comments({
     setError("");
     try {
       await post(`/tasks/${taskId}/comments`, { content });
+      onChange();
       setContent("");
       setPage(0);
       resource.refresh();
@@ -367,6 +371,7 @@ function Comments({
     setBusy(true);
     try {
       await remove(`/comments/${id}`);
+      onChange();
       resource.refresh();
     } catch (error) {
       setError(errorText(error));

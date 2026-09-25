@@ -100,8 +100,16 @@ const schema = z.object({
   MAIL_FROM: z.string().default("DevFlow AI <noreply@example.com>"),
   MAIL_PREVIEW_DIR: z.string().optional(),
   AI_MODE: z.enum(["local", "provider"]).default("local"),
-  OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().optional(),
+  AI_PROVIDER: z.literal("groq").default("groq"),
+  GROQ_API_KEY: z
+    .string()
+    .trim()
+    .refine(
+      (value) => value === "" || /^[\x21-\x7e]+$/.test(value),
+      "Use a single ASCII token",
+    )
+    .optional(),
+  GROQ_MODEL: z.string().trim().min(1).max(200).default("openai/gpt-oss-120b"),
 });
 
 // Validate at startup or request time, never terminate merely on app import.
@@ -129,12 +137,9 @@ export function getEnv() {
       );
     }
   }
-  if (
-    result.data.AI_MODE === "provider" &&
-    (!result.data.OPENAI_API_KEY || !result.data.OPENAI_MODEL)
-  ) {
+  if (result.data.AI_MODE === "provider" && !result.data.GROQ_API_KEY) {
     throw new Error(
-      "Invalid environment configuration: provider mode requires OPENAI_API_KEY and OPENAI_MODEL",
+      "Invalid environment configuration: Groq requires GROQ_API_KEY",
     );
   }
   return result.data;

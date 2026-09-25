@@ -16,7 +16,11 @@ test(
       "integration-refresh-secret-at-least-thirty-two-characters";
     const { default: app } = await import("../src/app");
     const { prisma } = await import("../src/lib/prisma");
-    const { Prisma } = await import("@prisma/client");
+    const { Prisma, PrismaClient } = await import("@prisma/client");
+    const { default: authRepository } = await import(
+      "../src/modules/auth/auth.repository"
+    );
+    const { accessToken } = await import("../src/modules/auth/auth.tokens");
     const { mailer } = await import("../src/lib/mail");
     const messages: Array<{ to: string; text: string }> = [];
     mock.method(mailer, "send", async (message) => {
@@ -104,6 +108,91 @@ test(
       let taskId = "";
       let privateProjectId = "";
       let privateColumnId = "";
+
+      await t.test(
+        "live session checks use one query and reject expired, revoked, inactive or mismatched sessions",
+        async () => {
+          const session = await prisma.session.findFirstOrThrow({
+            where: { userId: ownerUser.id },
+          });
+          const queryClient = new PrismaClient({
+            log: [{ emit: "event", level: "query" }],
+          });
+          let queryCount = 0;
+          queryClient.$on("query", () => {
+            queryCount += 1;
+          });
+          async function checkSession(
+            expected: boolean,
+            userId = ownerUser.id,
+            sessionId = session.id,
+          ) {
+            queryCount = 0;
+            const result = await authRepository.findActiveSession(
+              queryClient,
+              sessionId,
+              userId,
+            );
+            assert.deepEqual(result, expected ? { id: sessionId } : null);
+            assert.equal(
+              queryCount,
+              1,
+              "Session validation must use one SQL query",
+            );
+          }
+          try {
+            await queryClient.$connect();
+            await checkSession(true);
+            const current = await owner.request("GET", "/auth/me");
+            assert.deepEqual(current.data.user, ownerUser);
+            await checkSession(false, memberUser.id);
+            await checkSession(false, ownerUser.id, randomUUID());
+            const mismatched = new Client("mismatched-session@example.test");
+            mismatched.cookies.set(
+              "access_token",
+              accessToken(memberUser.id, session.id),
+            );
+            await mismatched.request("GET", "/auth/me", undefined, 401);
+
+            await prisma.session.update({
+              where: { id: session.id },
+              data: { expiresAt: new Date(0) },
+            });
+            await checkSession(false);
+            await owner.request("GET", "/auth/me", undefined, 401);
+            await prisma.session.update({
+              where: { id: session.id },
+              data: { expiresAt: session.expiresAt, revokedAt: new Date() },
+            });
+            await checkSession(false);
+            await owner.request("GET", "/auth/me", undefined, 401);
+            await prisma.session.update({
+              where: { id: session.id },
+              data: { revokedAt: null },
+            });
+            await prisma.user.update({
+              where: { id: ownerUser.id },
+              data: { isActive: false },
+            });
+            await checkSession(false);
+            await owner.request("GET", "/auth/me", undefined, 401);
+          } finally {
+            await prisma.session.update({
+              where: { id: session.id },
+              data: {
+                expiresAt: session.expiresAt,
+                revokedAt: session.revokedAt,
+              },
+            });
+            await prisma.user.update({
+              where: { id: ownerUser.id },
+              data: { isActive: true },
+            });
+            await queryClient.$disconnect();
+          }
+          await owner.request("GET", "/auth/me");
+        },
+      );
 
       // Derive the list from Prisma so future models cannot silently miss RLS.
       const protectedTables = [

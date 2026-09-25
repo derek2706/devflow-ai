@@ -169,15 +169,12 @@ class AuthService {
 
   async authenticate(token?: string) {
     const auth = verifyAccessToken(token);
-    const session = await authRepository.findSession(prisma, auth.sessionId);
-    if (
-      !session ||
-      session.userId !== auth.userId ||
-      session.revokedAt ||
-      session.expiresAt.getTime() <= Date.now() ||
-      !session.user.isActive
-    )
-      throw unauthorized();
+    const session = await authRepository.findActiveSession(
+      prisma,
+      auth.sessionId,
+      auth.userId,
+    );
+    if (!session) throw unauthorized();
     return auth;
   }
 

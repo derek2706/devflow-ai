@@ -80,8 +80,14 @@ export type DashboardData = {
   recentTasks: Task[];
   recentActivity: Activity[];
 };
-export type AiResult = {
+export type AiStatus = {
   mode: "local" | "provider";
+  provider?: "groq";
+  model?: string;
+};
+export type AiResult = AiStatus & {
+  fallbackReason?: "quota" | "unavailable" | "timeout" | "invalid_response";
+  contextLimited?: boolean;
   result: {
     subtasks?: { title: string; description: string; priority: Priority }[];
     summary?: string;
