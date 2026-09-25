@@ -59,6 +59,18 @@ class AuthRepository {
   findSession(db: PrismaClientOrTransaction, id: string) {
     return db.session.findUnique({ where: { id }, include: { user: true } });
   }
+  findActiveSession(db: PrismaClientOrTransaction, id: string, userId: string) {
+    return db.session.findUnique({
+      where: {
+        id,
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+        user: { isActive: true },
+      },
+      select: { id: true },
+    });
+  }
   rotateSession(
     db: PrismaClientOrTransaction,
     id: string,

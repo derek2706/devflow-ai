@@ -475,6 +475,7 @@ function AuthenticatedApp({
               workspaces={workspaces}
               onWorkspace={resolveProjectWorkspace}
               onChange={refresh}
+              onProjectsChange={projectResource.refresh}
             />
           ) : pathname === "/invite" ? (
             <Invite onJoined={refresh} />

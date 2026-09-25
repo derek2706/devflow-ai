@@ -111,7 +111,7 @@ Record successful live checks only after these result fields and labels are veri
 
 ## Build and verification
 
-The local regression suite currently passes 143 tests: 113 backend, 15 Next/Express bridge, 9 migration guards, and 6 production configuration guards. This includes 43 focused AI tests with mocked provider responses. The bridge tests cover startup diagnostics, generic error responses, and preservation of separate session cookies. Local test results and a successful build do not establish the hosted API's health; complete the live checks below after each release.
+The local regression suite currently passes 148 tests: 114 backend, 19 web API/bridge tests, 9 migration guards, and 6 production configuration guards. This includes 43 focused AI tests with mocked provider responses. The web tests cover startup diagnostics, cookie preservation, and concurrent session refresh. The separate local database suite passed 10 checks, including immediate session revocation and single-query session validation. Local test results and a successful build do not establish the hosted API's health; complete the live checks below after each release.
 
 The build generates Prisma, compiles Express, validates API configuration, applies committed migrations, then builds Next.js with its API function. **Configuration validation and migrations run only in a Vercel Production build.** `node scripts/vercel-validate.mjs` calls the compiled backend's environment validator after the Express build and before migrations; invalid configuration stops the build with a safe error before changing the database. Preview and local builds skip this production check.
 
@@ -146,7 +146,7 @@ Migrations are skipped for previews. Initialize that isolated database with `pnp
 - Trusted Vercel client-IP handling requires an explicit opt-in and validated header.
 - `scripts/vercel-migrate.mjs` applies production migrations using the migration URL and skips previews.
 - `scripts/vercel-validate.mjs` validates production API configuration before migrations, reporting a fixed safe error when configuration or module loading fails.
-- `apps/web/vercel.json` defines build/install commands, pins pnpm through Corepack, and selects the region.
+- `apps/web/vercel.json` defines build/install commands, pins pnpm through Corepack, and places functions in Mumbai (`bom1`) beside the Supabase primary database. Keep these regions aligned; see [API performance](PERFORMANCE.md) for measurements and verification.
 - Next.js and Prisma were updated to patched versions. Targeted dependency overrides in `pnpm-workspace.yaml` resolve the remaining Express query parser and Prisma configuration advisories.
 - Local development keeps ports 3000/5001. Next forwards local `/api` requests to the separate API; hosted builds use the integrated API route.
 - The Responses integration supports Groq Free alongside the local planner. Planning panels identify real AI, local fallbacks, and shortened context.

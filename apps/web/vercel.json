@@ -3,5 +3,5 @@
   "framework": "nextjs",
   "buildCommand": "cd ../.. && pnpm build:vercel",
   "installCommand": "cd ../.. && corepack enable && corepack prepare pnpm@10.33.2 --activate && pnpm install --frozen-lockfile --prod=false",
-  "regions": ["sin1"]
+  "regions": ["bom1"]
 }

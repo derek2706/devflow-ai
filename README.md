@@ -19,6 +19,8 @@ Email verification is intentionally deferred. Workspace invitations are copyable
 
 ### Latest updates
 
+API performance work places the function in Mumbai alongside Supabase, reduces session-query data, and removes unnecessary browser refetches. See [performance measurements and verification](docs/PERFORMANCE.md) for the 200 ms target and how to check a release.
+
 Navigation keeps the signed-in application shell mounted while you move between screens. The sidebar and header stay visible, and loading placeholders appear in the content being fetched. Signing in as a different user starts a fresh shell so the previous account's workspace state is not reused.
 
 The four planning tools can use a real model through Groq Free. Each result identifies its engine. Quotas, timeouts, temporary service failures, and invalid drafts produce a local draft with an explanation. Credential and configuration problems remain errors. A separate notice identifies shortened AI context.
@@ -294,7 +296,7 @@ Verified locally on September 24, 2026, with Node 22 and PostgreSQL:
 
 - Production builds for the API and frontend, frontend lint, and formatting checks passed. Next.js 16.3.6 and Prisma 6.19.3 are used; the production dependency audit reports no known vulnerabilities.
 - The actual Next production server passed HTTP checks for compiled pages/assets, database readiness, secure cookies, signup, dashboard queries with and without workspace filters, task/comment pagination, persisted projects/tasks, task movement, session refresh, origin rejection, and logout. The deployment trace includes Prisma and bcrypt Linux binaries.
-- `pnpm test`: 143 passed (113 backend, 15 Next/Express bridge, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes 43 focused AI tests for Groq requests, output validation, permissions, bounded context, credential errors, labeled fallbacks, and sprint task selection, plus CORS, cookie, and startup diagnostics regressions.
+- `pnpm test`: 148 passed (114 backend, 19 web API/bridge tests, 9 migration guards, 6 production configuration guards); the opt-in database suite is skipped by this command. Includes 43 focused AI tests, session revocation and validation, concurrent token refresh, CORS, cookie, and startup diagnostics regressions.
 - `pnpm test:integration`: all 9 checks passed, covering permissions, invitations, task ordering, concurrent moves, planning, refresh/logout, password recovery, and database row-level security against PostgreSQL.
 - Browser checks passed for login, workspace/project creation, task fields, comments, persistent drag and drop, all four planning tools, and editing/applying subtask suggestions.
 - At a 390-pixel viewport, the dashboard, navigation drawer, board, and task status selector were checked. Changing status updated the board and completion count.

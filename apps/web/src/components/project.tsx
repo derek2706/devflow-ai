@@ -27,12 +27,14 @@ export function ProjectView({
   workspaces,
   onWorkspace,
   onChange,
+  onProjectsChange,
 }: {
   id: string;
   user: User;
   workspaces: Workspace[];
   onWorkspace: (id: string | null) => void;
   onChange: () => void;
+  onProjectsChange: () => void;
 }) {
   const router = useRouter();
   const resource = useResource<{ project: Project }>(`/projects/${id}`);
@@ -70,9 +72,9 @@ export function ProjectView({
       .find((task) => task.id === taskId);
     if (task) queueMicrotask(() => setTaskEditor({ task }));
   }, [project]);
-  function refresh() {
+  function refresh(projectSummaryChanged = false) {
     resource.refresh();
-    onChange();
+    if (projectSummaryChanged) onProjectsChange();
   }
   async function moveTask(taskId: string, columnId: string, position: number) {
     if (
@@ -418,7 +420,7 @@ export function ProjectView({
             onClose={() => setSettings(false)}
             onSave={() => {
               setSettings(false);
-              refresh();
+              refresh(true);
             }}
           />
         </>
@@ -435,7 +437,7 @@ export function ProjectView({
           project={project}
           canManage={canManage}
           onClose={() => setMembers(false)}
-          onChange={refresh}
+          onChange={() => refresh(true)}
         />
       )}
       {canManage && columnEditor && (
@@ -455,16 +457,17 @@ export function ProjectView({
           task={taskEditor.task}
           columnId={taskEditor.columnId}
           user={user}
-          onClose={() => {
+          workspaceRole={workspace?.role}
+          onClose={(changed) => {
             setTaskEditor(null);
-            resource.refresh();
+            if (changed) resource.refresh();
             if (window.location.search)
               router.replace(`/projects/${id}`, { scroll: false });
           }}
-          onChange={() => {
+          onChange={(taskCountChanged) => {
             setTaskEditor(null);
             router.replace(`/projects/${id}`, { scroll: false });
-            refresh();
+            refresh(taskCountChanged);
           }}
         />
       )}
